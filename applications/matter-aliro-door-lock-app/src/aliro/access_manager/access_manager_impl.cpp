@@ -642,11 +642,23 @@ void AccessManagerImpl::_HandleRangingSessionStateChanged(SessionContext session
 	case RangingSessionState::RangingSuspended:
 		LOG_INF("Ranging state changed to Ranging Suspended (session: %p)", sessionContext.GetRaw());
 
-		// Only update ReaderState if no other session allows open (prevents rapid toggling after Suspend).
-		SetOpenAllowed(sessionContext, false, !IsOpenAllowed());
+		// Always force CLOSED on suspend: update session state without triggering the internal
+		// callback (updateReaderState=false), then call LockAction explicitly so the lock closes
+		// even if another session's mOpenAllowed is still true.
+		SetOpenAllowed(sessionContext, false, false);
+		{
+			auto *ctx = FindRangingSession(sessionContext);
+			LockAction(false, ctx ? ctx->mAccessCredentialPublicKey : CryptoTypes::PublicKey{});
+		}
+#if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
+		AliroDisplayRefreshState();
+#endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
 		break;
 	case RangingSessionState::RangingResumed:
 		LOG_INF("Ranging state changed to Ranging Resumed (session: %p)", sessionContext.GetRaw());
+#if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
+		AliroDisplayRefreshState();
+#endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
 		break;
 	case RangingSessionState::Destroyed:
 		LOG_INF("Ranging state changed to Destroyed (session: %p)", sessionContext.GetRaw());
@@ -673,6 +685,9 @@ void AccessManagerImpl::_HandleRangingSessionData(SessionContext sessionContext,
 	LOG_INF("session %p | %s", sessionContext.GetRaw(), openAllowed ? "OPEN ALLOWED" : "OPEN NOT ALLOWED");
 
 	SetOpenAllowed(sessionContext, openAllowed);
+#ifdef CONFIG_DOOR_LOCK_DISPLAY
+	PostDisplayClosestRangingDistance();
+#endif // CONFIG_DOOR_LOCK_DISPLAY
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 }
 
@@ -687,6 +702,10 @@ void AccessManagerImpl::_HandleSessionTermination(SessionContext sessionContext)
 
 	SetOpenAllowed(sessionContext, false);
 	RemoveRangingSession(sessionContext);
+#ifdef CONFIG_DOOR_LOCK_DISPLAY
+	PostDisplayClosestRangingDistance();
+	display_post_event(DISPLAY_DISCONNECTED_ACTION);
+#endif // CONFIG_DOOR_LOCK_DISPLAY
 
 #else
 	ARG_UNUSED(sessionContext);
@@ -852,6 +871,8 @@ bool AccessManagerImpl::EvaluateUwbOpenAllowed(const UwbRangingData &uwbData, Se
 	auto *sessionCtx = FindRangingSession(sessionContext);
 	VerifyOrReturnFalse(sessionCtx, LOG_ERR("Session context not found for handle: %p", sessionContext.GetRaw()));
 
+	sessionCtx->mLastReportedDistanceCm = distance;
+
 	const bool wasOpenAllowed = sessionCtx->mOpenAllowed;
 
 	const uint32_t threshold =
@@ -867,6 +888,40 @@ bool AccessManagerImpl::EvaluateUwbOpenAllowed(const UwbRangingData &uwbData, Se
 	LOG_DBG("Distance check passed, open allowed from UWB for this update");
 	return true;
 }
+
+#ifdef CONFIG_DOOR_LOCK_DISPLAY
+void AccessManagerImpl::PostDisplayClosestRangingDistance()
+{
+	RangingSessionContext *closestSession{ nullptr };
+	uint16_t closestDistanceCm{ UINT16_MAX };
+
+	{
+		MutexGuard lock{ sMutex };
+		RangingSessionContext *sessionCtx{};
+
+		SYS_SLIST_FOR_EACH_CONTAINER (&mActiveSessions, sessionCtx, mNode) {
+			if (!sessionCtx->mLastReportedDistanceCm.has_value()) {
+				continue;
+			}
+
+			const uint16_t distanceCm = sessionCtx->mLastReportedDistanceCm.value();
+			if (distanceCm < closestDistanceCm) {
+				closestDistanceCm = distanceCm;
+				closestSession = sessionCtx;
+			}
+		}
+	}
+
+	if (!closestSession) {
+		return;
+	}
+
+	const uint32_t threshold = closestSession->mOpenAllowed ?
+					   (mMaxAllowedDistance + mMaxAllowedDistanceExitMargin) :
+					   mMaxAllowedDistance;
+	display_post_distance_update({ static_cast<int32_t>(closestDistanceCm), static_cast<int32_t>(threshold) });
+}
+#endif // CONFIG_DOOR_LOCK_DISPLAY
 
 std::optional<uint16_t> AccessManagerImpl::ExtractDistanceFromUwbData(const UwbRangingData &uwbData) const
 {
