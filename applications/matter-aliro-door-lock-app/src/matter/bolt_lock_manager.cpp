@@ -63,13 +63,19 @@ bool ValidateAliroCredential(const Aliro::CryptoTypes::PublicKey &accessCredenti
 void HandleAliroUnlock(bool isNfcSession, const Aliro::CryptoTypes::PublicKey &accessCredentialPublicKey)
 {
 	const auto source = isNfcSession ? Aliro::OperationSource::ThisUserDeviceInNfc :
-					  Aliro::OperationSource::ThisUserDeviceInBluetoothLeUwbAliroFlow;
+					   Aliro::OperationSource::ThisUserDeviceInBluetoothLeUwbAliroFlow;
 
-	Nullable<BoltLockManager::ValidateCredentialResult> result;
-	const auto success = ValidateAliroCredential(accessCredentialPublicKey, result);
-	VerifyOrReturn(success);
-
-	Nrf::PostTask([source, result] { BoltLockMgr().Unlock(source, result); });
+	/* ValidateAliroCredential() calls LockChipStack() which must not be
+	 * invoked synchronously from a BLE/system-work-queue callback — doing
+	 * so risks a deadlock when the Matter thread already holds the lock and
+	 * is itself waiting for BLE teardown to complete.  Defer the entire
+	 * validation + lock/unlock sequence to the Matter thread via PostTask. */
+	Nrf::PostTask([source, accessCredentialPublicKey] {
+		Nullable<BoltLockManager::ValidateCredentialResult> result;
+		const auto success = ValidateAliroCredential(accessCredentialPublicKey, result);
+		VerifyOrReturn(success);
+		BoltLockMgr().Unlock(source, result);
+	});
 }
 
 } // namespace
@@ -90,11 +96,14 @@ void BoltLockManager::Init(StateChangeCallback callback)
 					isNfcSession ? Aliro::OperationSource::ThisUserDeviceInNfc :
 						       Aliro::OperationSource::ThisUserDeviceInBluetoothLeUwbAliroFlow;
 
-				Nullable<ValidateCredentialResult> result;
-				const auto success = ValidateAliroCredential(accessCredentialPublicKey, result);
-				VerifyOrReturn(success);
-
-				Nrf::PostTask([source, result] { BoltLockMgr().Lock(source, result); });
+				/* Same reasoning as mUnlockIndicatorClb: defer ValidateAliroCredential()
+				 * (which calls LockChipStack) to the Matter thread to avoid deadlock. */
+				Nrf::PostTask([source, accessCredentialPublicKey] {
+					Nullable<ValidateCredentialResult> result;
+					const auto success = ValidateAliroCredential(accessCredentialPublicKey, result);
+					VerifyOrReturn(success);
+					BoltLockMgr().Lock(source, result);
+				});
 			},
 	});
 
