@@ -650,6 +650,7 @@ void AccessManagerImpl::_HandleRangingSessionStateChanged(SessionContext session
 			auto *ctx = FindRangingSession(sessionContext);
 			LockAction(false, ctx ? ctx->mAccessCredentialPublicKey : CryptoTypes::PublicKey{});
 		}
+
 #if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
 		AliroDisplayRefreshState();
 #endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
