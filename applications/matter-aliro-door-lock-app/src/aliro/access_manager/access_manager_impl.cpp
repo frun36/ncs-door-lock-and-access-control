@@ -28,6 +28,12 @@
 #include "uwb_impl.h"
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 
+
+#ifdef CONFIG_DOOR_LOCK_DISPLAY
+#include "aliro/init.h"
+#include "display/display.h"
+#endif // CONFIG_DOOR_LOCK_DISPLAY
+
 #include <crypto_utils/crypto_utils.h>
 #include <doorlock/utils/mutex_guard.h>
 
@@ -817,10 +823,6 @@ AliroError AccessManagerImpl::_GetPublicKey(size_t keyIndex, CryptoTypes::Public
 void AccessManagerImpl::UnlockAction(bool isNfcSession, const CryptoTypes::PublicKey &accessCredentialPublicKey) const
 {
 	VerifyAndCall(mCallbacks.mUnlockIndicatorClb, isNfcSession, accessCredentialPublicKey);
-
-#ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_RADAR
-	Uwb::UltraWideBandInstance().StopRadarSession();
-#endif // CONFIG_DOOR_LOCK_ALIRO_UWB_RADAR
 }
 
 void AccessManagerImpl::LockAction(bool isNfcSession, const CryptoTypes::PublicKey &accessCredentialPublicKey) const
