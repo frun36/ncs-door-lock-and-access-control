@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include "aliro/utils.h"
+#include "zephyr/kernel.h"
+#include <atomic>
 #include <gesture_access/gesture_access.h>
 
 #ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
@@ -14,6 +17,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/video-controls.h>
 #include <zephyr/drivers/video.h>
 #include <zephyr/drivers/video/arducam_mega.h>
@@ -36,55 +40,83 @@ constexpr uint16_t kFrameWidth = Model::kInputWidth;
 constexpr uint16_t kFrameHeight = Model::kInputHeight;
 constexpr size_t kVideoChunkBytes = 512; //kFrameWidth * 2 * kVideoChunkRows;
 constexpr size_t kVideoBufferCount = CONFIG_VIDEO_BUFFER_POOL_NUM_MAX;
-constexpr size_t kMaxDetectionCallbacks = 4;
 
 const device *sVideoDevice = DEVICE_DT_GET(DT_NODELABEL(arducam_mega));
+const gpio_dt_spec sCameraLed = GPIO_DT_SPEC_GET(DT_NODELABEL(led3), gpios);
 
 k_sem sActivateSignal;
-atomic_t sStopRequested;
+std::atomic<bool> sActive;
 uint8_t sGrayscaleFrame[Model::kInputSize];
-uint8_t sConfirmCount;
-uint8_t sReleaseCount;
+uint32_t sDetectionCount;
 bool sConfirmedDetected;
 
-DetectionCallback sDetectionCallbacks[kMaxDetectionCallbacks];
-size_t sDetectionCallbackCount;
+GestureDetectedCallback sDetectionCallback;
 
-int SetCameraLowPower(bool enable)
+int SetVideoActive(bool active)
 {
 	video_control ctrl{
 		.id = VIDEO_CID_ARDUCAM_LOWPOWER,
-		.val = enable ? 1 : 0,
+		.val = active ? 0 : 1,
 	};
 
-	return video_set_ctrl(sVideoDevice, &ctrl);
-}
-
-void NotifyDetectionCallbacks(bool detected)
-{
-	for (size_t i = 0; i < sDetectionCallbackCount; i++) {
-		sDetectionCallbacks[i](detected);
-	}
-}
-
-void UpdateDebounce(bool frameHasDetection)
-{
-	if (frameHasDetection) {
-		sReleaseCount = 0;
-		sConfirmCount = MIN(sConfirmCount + 1, UINT8_MAX);
-	} else {
-		sConfirmCount = 0;
-		sReleaseCount = MIN(sReleaseCount + 1, UINT8_MAX);
+	int err;
+	if (!active) {
+		err = video_stream_stop(sVideoDevice, VIDEO_BUF_TYPE_OUTPUT);
+		if (err) {
+			LOG_ERR("video_stream_stop failed (err %d)", err);
+			return err;
+		}
 	}
 
-	if (!sConfirmedDetected && sConfirmCount >= CONFIG_DOOR_LOCK_GESTURE_ACCESS_DEBOUNCE_CONFIRM_FRAMES) {
-		sConfirmedDetected = true;
-		LOG_INF("Gesture detected");
-		NotifyDetectionCallbacks(true);
-	} else if (sConfirmedDetected && sReleaseCount >= CONFIG_DOOR_LOCK_GESTURE_ACCESS_DEBOUNCE_RELEASE_FRAMES) {
+	err = video_set_ctrl(sVideoDevice, &ctrl);
+	if (err) {
+		LOG_ERR("video_set_ctrl failed (err %d)", err);
+		return err;
+	}
+
+	if (active) {
+		err = video_stream_start(sVideoDevice, VIDEO_BUF_TYPE_OUTPUT);
+		LOG_ERR("video_stream_start failed (err %d)", err);
+		if (err) {
+			return err;
+		}
+	}
+
+	err = gpio_pin_set_dt(&sCameraLed, active);
+	if (err) {
+		LOG_ERR("Failed to set camera LED (err %d)", err);
+		return err;
+	}
+
+	LOG_INF("Video %s", active ? "activated" : "deactivated");
+
+	return 0;
+}
+
+void ResetDebounce() {
+	sDetectionCount = 0;
+	sConfirmedDetected = false;
+}
+
+void HandleDetectionResult(const Model::Result &res)
+{
+	LOG_INF("DETECTION | elapsed %uus | probability %u.%u%%", res.inferenceTimeUs, res.confidenceMilli / 10, res.confidenceMilli % 10);
+
+	if (!res.detected) {
+		sDetectionCount = 0;
 		sConfirmedDetected = false;
-		LOG_INF("Gesture no longer detected");
-		NotifyDetectionCallbacks(false);
+		return;
+	}
+
+	if (sConfirmedDetected) {
+		return;
+	}
+
+	sDetectionCount++;
+	LOG_INF("DETECTION | OK (count %u)", sDetectionCount);
+	if (sDetectionCount >= CONFIG_DOOR_LOCK_GESTURE_ACCESS_DEBOUNCE_FRAMES) {
+		sConfirmedDetected = true;
+		VerifyAndCall(sDetectionCallback);
 	}
 }
 
@@ -150,13 +182,12 @@ int CaptureAndInferOneFrame()
 
 	Model::Result result;
 	int err = Model::Run(sGrayscaleFrame, Model::kInputSize, result);
-
 	if (err) {
 		LOG_ERR("Model::Run failed (err %d)", err);
 		return err;
 	}
 
-	UpdateDebounce(result.detected);
+	HandleDetectionResult(result);
 
 #ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
 	ForwardFrameIfHostReady(result);
@@ -169,29 +200,27 @@ void CaptureThreadFn(void *, void *, void *)
 {
 	for (;;) {
 		k_sem_take(&sActivateSignal, K_FOREVER);
-
-		sConfirmCount = 0;
-		sReleaseCount = 0;
-		sConfirmedDetected = false;
-
-		int err = SetCameraLowPower(false);
-		if (err) {
-			LOG_ERR("Failed to wake camera (err %d)", err);
+		if (!sActive.load()) {
+			continue;
 		}
 
-		err = video_stream_start(sVideoDevice, VIDEO_BUF_TYPE_OUTPUT);
+		ResetDebounce(); // reset debounce
+
+		int err = SetVideoActive(true);
 		if (err) {
-			LOG_ERR("Failed to start video stream (err %d)", err);
+			LOG_ERR("Failed to activate video (err %d)", err);
+			continue;
 		}
 
-		while (!atomic_get(&sStopRequested)) {
+		while (sActive.load()) {
 			CaptureAndInferOneFrame();
 		}
 
-		video_stream_stop(sVideoDevice, VIDEO_BUF_TYPE_OUTPUT);
-		SetCameraLowPower(true);
-
-		atomic_clear(&sStopRequested);
+		err = SetVideoActive(false);
+		if (err) {
+			LOG_ERR("Failed to deactivate video (err %d)", err);
+			continue;
+		}
 	}
 }
 
@@ -200,16 +229,29 @@ K_THREAD_DEFINE(sCaptureThread, CONFIG_DOOR_LOCK_GESTURE_ACCESS_THREAD_STACK_SIZ
 
 } // namespace
 
-int Init()
+int Init(GestureDetectedCallback callback)
 {
+	sDetectionCallback = callback;
+
 	LOG_INF("Gesture access init");
+
+	if (!gpio_is_ready_dt(&sCameraLed)) {
+		LOG_ERR("Camera LED is not ready");
+		return -ENODEV;
+	}
+
+	int err = gpio_pin_configure_dt(&sCameraLed, GPIO_OUTPUT_INACTIVE);
+	if (err) {
+		LOG_ERR("Failed to configure camera LED (err %d)", err);
+		return err;
+	}
+
+	k_sem_init(&sActivateSignal, 0, 1);
 
 	if (!device_is_ready(sVideoDevice)) {
 		LOG_ERR("Video device not ready");
 		return -ENODEV;
 	}
-
-	k_sem_init(&sActivateSignal, 0, 1);
 
 	video_format fmt{
 		.type = VIDEO_BUF_TYPE_OUTPUT,
@@ -219,7 +261,7 @@ int Init()
 		.pitch = static_cast<uint32_t>(kFrameWidth * 2),
 	};
 
-	int err = video_set_format(sVideoDevice, &fmt);
+	err = video_set_format(sVideoDevice, &fmt);
 	if (err) {
 		LOG_ERR("Failed to set video format (err %d)", err);
 		return err;
@@ -255,27 +297,10 @@ int Init()
 	return 0;
 }
 
-int Start()
+void SetDetectionActive(bool active)
 {
-	atomic_clear(&sStopRequested);
+	sActive.store(active);
 	k_sem_give(&sActivateSignal);
-
-	return 0;
-}
-
-void Stop()
-{
-	atomic_set(&sStopRequested, 1);
-}
-
-int RegisterDetectionCallback(DetectionCallback callback)
-{
-	if (sDetectionCallbackCount >= kMaxDetectionCallbacks) {
-		return -ENOMEM;
-	}
-
-	sDetectionCallbacks[sDetectionCallbackCount++] = callback;
-	return 0;
 }
 
 } // namespace DoorLock::GestureAccess

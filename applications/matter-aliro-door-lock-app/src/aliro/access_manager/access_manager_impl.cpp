@@ -10,6 +10,7 @@
 #include "aliro/interface.h"
 #include "aliro/time.h"
 #include "aliro/utils.h"
+#include "gesture_access/gesture_access.h"
 #include "storage.h"
 #include "storage_keys.h"
 
@@ -582,6 +583,9 @@ void AccessManagerImpl::_HandleRangingSessionStateChanged(SessionContext session
 		LOG_INF("Ranging state changed to Ranging Suspended (session: %p)", sessionContext.GetRaw());
 
 		// Only update ReaderState if no other session allows open (prevents rapid toggling after Suspend).
+		// QUESTION: why this IsOpenAllowed check here, if it's already inside SetOpenAllowed?
+		// When the iPhone suspends the ranging session while being in range, `updateReaderState` is false,
+		// so my video capture loop keeps running...
 		SetOpenAllowed(sessionContext, false, !IsOpenAllowed());
 		break;
 	case RangingSessionState::RangingResumed:
@@ -1001,16 +1005,23 @@ void AccessManagerImpl::SetOpenAllowed(SessionContext sessionContext, bool openA
 #endif // CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_TIMEOUT
 	}
 
+	// QUESTION: if the mutex wasn't released for this check, couldn't it
+	// have been a simple IsOpenAllowed() (after the sessionCtx was updated)?
 	bool hasAnyOpenAllowed{ false };
 	hasAnyOpenAllowed = openAllowed || (hadAnyOpenAllowed && IsOpenAllowed());
 
 	// Handle state change and trigger appropriate actions if state changed
 	if (updateReaderState && (hasAnyOpenAllowed != hadAnyOpenAllowed)) {
-#ifdef CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
-		if (hadAnyOpenAllowed && hasAnyOpenAllowed) {
-			TerminateAliroSession(sessionContext);
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+		DoorLock::GestureAccess::SetDetectionActive(hasAnyOpenAllowed);
+
+#ifndef CONFIG_DOOR_LOCK_ALIRO_LOCK_SIM_AUTO_RELOCK
+		if (!hasAnyOpenAllowed) {
+			LockAction(false, sessionCtx->mAccessCredentialPublicKey);
 		}
-#endif // CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
+#endif // CONFIG_DOOR_LOCK_ALIRO_LOCK_SIM_AUTO_RELOCK
+
+#else // CONFIG_DOOR_LOCK_GESTURE_ACCESS
 
 		if (hasAnyOpenAllowed) {
 			UnlockAction(false, sessionCtx->mAccessCredentialPublicKey);
@@ -1022,6 +1033,7 @@ void AccessManagerImpl::SetOpenAllowed(SessionContext sessionContext, bool openA
 			LockAction(false, sessionCtx->mAccessCredentialPublicKey);
 #endif // CONFIG_DOOR_LOCK_ALIRO_LOCK_SIM_AUTO_RELOCK
 		}
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
 	}
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 }
@@ -1303,5 +1315,46 @@ AliroError AccessManagerImpl::RemoveAccessCredentials(size_t credentialIssuerKey
 #endif // CONFIG_DOOR_LOCK_STORAGE_MAX_STORED_ACCESS_DOCUMENTS > 0
 
 #endif // CONFIG_DOOR_LOCK_STEP_UP_PHASE
+
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+void AccessManagerImpl::_HandleGestureDetected()
+{
+	std::optional<CryptoTypes::PublicKey> publicKey;
+	std::optional<SessionContext> sessionContext;
+
+	{
+		MutexGuard lock{ sMutex };
+		RangingSessionContext *ctx{};
+		// Find any eligible session
+		SYS_SLIST_FOR_EACH_CONTAINER (&mActiveSessions, ctx, mNode) {
+			if (ctx->mOpenAllowed) {
+				publicKey = ctx->mAccessCredentialPublicKey;
+				sessionContext = ctx->mSessionContext;
+				break;
+			}
+		}
+
+		if (!publicKey.has_value()) {
+			LOG_WRN("Gesture confirmed, but no eligible UWB session");
+			DoorLock::GestureAccess::SetDetectionActive(false);
+			return;
+		}
+	}
+	LOG_INF("Gesture confirmed, unlocking door");
+	UnlockAction(false, publicKey.value());
+	// QUESTION: the video doesn't get disabled here, because potentially the lock could be locked again
+	// without the UWB session being updated - I see no way of signalling this to the video thread?
+	// The video is therefore active until the UWB session stops.
+
+#ifdef CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
+	// QUESTION: what if the session was terminated before this is called?
+	// (similar risk already present in L1025).
+	// I presume I can't hold the mutex around UnlockAction (potentially time consuming)?
+	if (rangingSessionCtx) {
+		TerminateAliroSession(rangingSessionCtx->mSessionContext);
+	}
+#endif // CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
+}
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
 
 } // namespace Aliro
