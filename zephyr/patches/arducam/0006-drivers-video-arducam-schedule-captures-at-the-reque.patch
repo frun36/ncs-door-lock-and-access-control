@@ -1,4 +1,4 @@
-From 6ad379f3d2889c5aa142adbcd19d0aaa96ee0032 Mon Sep 17 00:00:00 2001
+From bc667e1b2f75c7caa3ba7c7732504e551562fb07 Mon Sep 17 00:00:00 2001
 From: Franciszek Urbanski <franciszek.urbanski@nordicsemi.no>
 Date: Mon, 17 Aug 2026 10:23:56 +0200
 Subject: [PATCH 6/6] drivers: video: arducam: schedule captures at the
@@ -9,11 +9,11 @@ more flexible delayable work scheduled at the configured frame interval.
 Reschedule work when buffers arrive, cancel it synchronously on stream
 stop, and retain input buffers when capture or FIFO reads fail.
 ---
- drivers/video/video_arducam_mega.c | 117 +++++++++++++++++++++--------
- 1 file changed, 84 insertions(+), 33 deletions(-)
+ drivers/video/video_arducam_mega.c | 131 +++++++++++++++++++++--------
+ 1 file changed, 98 insertions(+), 33 deletions(-)
 
 diff --git a/drivers/video/video_arducam_mega.c b/drivers/video/video_arducam_mega.c
-index a48fcbf8142b094344c7b4cdb6a6663db6bb02e1..0c6c1d6e92c827258be6e92f74733547c90eb2c5 100644
+index a48fcbf8142b094344c7b4cdb6a6663db6bb02e1..4ff68f2b59a6e16db977e6be9eda7e0fadaa974f 100644
 --- a/drivers/video/video_arducam_mega.c
 +++ b/drivers/video/video_arducam_mega.c
 @@ -202,7 +202,7 @@ enum mega_features {
@@ -120,7 +120,7 @@ index a48fcbf8142b094344c7b4cdb6a6663db6bb02e1..0c6c1d6e92c827258be6e92f74733547
  	return 0;
  }
  
-@@ -1073,42 +1091,71 @@ static int arducam_mega_fifo_read(const struct device *dev, struct video_buffer
+@@ -1073,42 +1091,85 @@ static int arducam_mega_fifo_read(const struct device *dev, struct video_buffer
  
  static void arducam_mega_buffer_work(struct k_work *work)
  {
@@ -161,23 +161,37 @@ index a48fcbf8142b094344c7b4cdb6a6663db6bb02e1..0c6c1d6e92c827258be6e92f74733547
  	if (drv_data->fifo_length == 0) {
 -		ret = arducam_mega_capture(drv_data->dev, &f_length);
 +		now = k_uptime_get_32();
++		drv_data->next_frame_at_ms = now + drv_data->frame_interval_ms;
 +		ret = arducam_mega_capture(drv_data->dev);
  		if (ret < 0) {
  			LOG_ERR("Failed to capture frame (%d)", ret);
++			/* A failed FIFO-size read may have left a partial length. */
++			drv_data->fifo_length = 0;
  			k_fifo_put(&drv_data->fifo_in, vbuf);
++			if (drv_data->stream_on) {
++				/* Entry timing check will wait until the next frame. */
++				k_work_reschedule_for_queue(&ac_work_q, &drv_data->buf_work,
++							    K_NO_WAIT);
++			}
  			return;
  		}
  
 -		f_timestamp = k_uptime_get_32();
 +		drv_data->frame_timestamp_ms = now;
-+		drv_data->next_frame_at_ms = now + drv_data->frame_interval_ms;
  	}
  
 +	/* Read FIFO into a single buffer */
  	ret = arducam_mega_fifo_read(drv_data->dev, vbuf);
  	if (ret < 0) {
  		LOG_ERR("failed to read a buffer (%d)", ret);
++		/* Discard the failed frame; the next capture flushes the hardware FIFO. */
++		drv_data->fifo_length = 0;
 +		k_fifo_put(&drv_data->fifo_in, vbuf);
++		if (drv_data->stream_on) {
++			/* Entry timing check will wait until the next frame. */
++			k_work_reschedule_for_queue(&ac_work_q, &drv_data->buf_work,
++						    K_NO_WAIT);
++		}
  		return;
  	}
 +	vbuf->timestamp = drv_data->frame_timestamp_ms;
@@ -201,7 +215,7 @@ index a48fcbf8142b094344c7b4cdb6a6663db6bb02e1..0c6c1d6e92c827258be6e92f74733547
  }
  
  static int arducam_mega_enqueue(const struct device *dev, struct video_buffer *vbuf)
-@@ -1119,6 +1166,10 @@ static int arducam_mega_enqueue(const struct device *dev, struct video_buffer *v
+@@ -1119,6 +1180,10 @@ static int arducam_mega_enqueue(const struct device *dev, struct video_buffer *v
  
  	LOG_DBG("enqueue buffer %p", vbuf->buffer);
  
@@ -212,7 +226,7 @@ index a48fcbf8142b094344c7b4cdb6a6663db6bb02e1..0c6c1d6e92c827258be6e92f74733547
  	return 0;
  }
  
-@@ -1200,6 +1251,7 @@ static DEVICE_API(video, arducam_mega_driver_api) = {
+@@ -1200,6 +1265,7 @@ static DEVICE_API(video, arducam_mega_driver_api) = {
  	.set_ctrl = arducam_mega_set_ctrl,
  	.get_caps = arducam_mega_get_caps,
  	.set_stream = arducam_mega_stream_start,
@@ -220,7 +234,7 @@ index a48fcbf8142b094344c7b4cdb6a6663db6bb02e1..0c6c1d6e92c827258be6e92f74733547
  	.flush = arducam_mega_flush,
  	.enqueue = arducam_mega_enqueue,
  	.dequeue = arducam_mega_dequeue,
-@@ -1345,10 +1397,9 @@ static int arducam_mega_init(const struct device *dev)
+@@ -1345,10 +1411,9 @@ static int arducam_mega_init(const struct device *dev)
  	k_work_queue_start(&ac_work_q, ac_stack_area, K_THREAD_STACK_SIZEOF(ac_stack_area),
  			   AC_PRIORITY, NULL);
  
