@@ -924,6 +924,7 @@ void AccessManagerImpl::PostDisplayClosestRangingDistance()
 					   mMaxAllowedDistance;
 	display_post_distance_update({ static_cast<int32_t>(closestDistanceCm), static_cast<int32_t>(threshold) });
 }
+
 #endif // CONFIG_DOOR_LOCK_DISPLAY
 
 std::optional<uint16_t> AccessManagerImpl::ExtractDistanceFromUwbData(const UwbRangingData &uwbData) const

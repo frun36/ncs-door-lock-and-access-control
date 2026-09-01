@@ -96,8 +96,7 @@ void BoltLockManager::Init(StateChangeCallback callback)
 					isNfcSession ? Aliro::OperationSource::ThisUserDeviceInNfc :
 						       Aliro::OperationSource::ThisUserDeviceInBluetoothLeUwbAliroFlow;
 
-				/* Same reasoning as mUnlockIndicatorClb: defer ValidateAliroCredential()
-				 * (which calls LockChipStack) to the Matter thread to avoid deadlock. */
+				/* Credential validation must run on the Matter thread. */
 				Nrf::PostTask([source, accessCredentialPublicKey] {
 					Nullable<ValidateCredentialResult> result;
 					const auto success = ValidateAliroCredential(accessCredentialPublicKey, result);
