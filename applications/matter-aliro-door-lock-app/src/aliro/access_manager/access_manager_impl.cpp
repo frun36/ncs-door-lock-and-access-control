@@ -10,7 +10,6 @@
 #include "aliro/interface.h"
 #include "aliro/time.h"
 #include "aliro/utils.h"
-#include "gesture_access/gesture_access.h"
 #include "storage.h"
 #include "storage_keys.h"
 
@@ -25,6 +24,10 @@
 #include "aliro/memory.h"
 #include "uwb_impl.h"
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
+
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+#include "gesture_access/gesture_access.h"
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
 
 #ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
 #include <disambiguator.h>

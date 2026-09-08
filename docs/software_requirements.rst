@@ -124,21 +124,14 @@ nRF Edge AI SDK repository
 The |REPO_NAME| integrates gesture-based access control using an SPI camera and on-device inference.
 This support uses the Nordic Axon NPU driver from the `sdk-edge-ai <sdk-edge-ai_>`_ repository (cloned into the :file:`edge-ai` directory).
 If you are building with the ``gesture_access`` snippet, add the repository to your workspace before running ``west update``.
-To do that, execute the following command:
-
-.. code-block:: bash
-
-   west config manifest.group-filter -- "+sdk-edge-ai"
-
-If you are using more group filters in your application, you need to pass them all to the ``west config manifest.group-filter`` command using comma-separated values.
-For example, to enable both QM35 UWB and gesture access:
+Note that the gesture-access feature depends on ``CONFIG_DOOR_LOCK_BLE_UWB``, as gesture confirmation is associated with an eligible Aliro UWB session.
+For the QM35 UWB implementation, it is necessary to also add the QM35 SDK repository:
 
 .. code-block:: bash
 
    west config manifest.group-filter -- "+qm35-aliro-sdk,+sdk-edge-ai"
 
-You only need to configure the group filter once per west workspace.
-After changing the group filter, run ``west update`` again so that the :file:`edge-ai` repository is fetched.
+After changing the group filter, run ``west update`` again so that the repositories are fetched.
 
 Aliro Certification Tool
 ************************

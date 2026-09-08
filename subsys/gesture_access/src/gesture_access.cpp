@@ -38,7 +38,7 @@ namespace {
 
 constexpr uint16_t kFrameWidth = Model::kInputWidth;
 constexpr uint16_t kFrameHeight = Model::kInputHeight;
-constexpr size_t kVideoChunkBytes = 512; //kFrameWidth * 2 * kVideoChunkRows;
+constexpr size_t kVideoChunkBytes = 512;
 constexpr size_t kVideoBufferCount = CONFIG_VIDEO_BUFFER_POOL_NUM_MAX;
 
 const device *sVideoDevice = DEVICE_DT_GET(DT_NODELABEL(arducam_mega));
@@ -93,14 +93,16 @@ int SetVideoActive(bool active)
 	return 0;
 }
 
-void ResetDebounce() {
+void ResetDebounce()
+{
 	sDetectionCount = 0;
 	sConfirmedDetected = false;
 }
 
 void HandleDetectionResult(const Model::Result &res)
 {
-	LOG_INF("DETECTION | elapsed %uus | probability %u.%u%%", res.inferenceTimeUs, res.confidenceMilli / 10, res.confidenceMilli % 10);
+	LOG_INF("DETECTION | elapsed %uus | probability %u.%u%%", res.inferenceTimeUs, res.confidenceMilli / 10,
+		res.confidenceMilli % 10);
 
 	if (!res.detected) {
 		sDetectionCount = 0;
@@ -108,6 +110,7 @@ void HandleDetectionResult(const Model::Result &res)
 		return;
 	}
 
+	// React only to detection state rising edge
 	if (sConfirmedDetected) {
 		return;
 	}
@@ -139,13 +142,13 @@ void ForwardFrameIfHostReady(const Model::Result &result)
 	}
 
 	char meta[256];
-	int offset = snprintf(meta, sizeof(meta), "{\"det\":%d,\"conf\":%u,\"us\":%u,\"pts\":[",
-			       result.detected, result.confidenceMilli, result.inferenceTimeUs);
+	int offset = snprintf(meta, sizeof(meta), "{\"det\":%d,\"conf\":%u,\"us\":%u,\"pts\":[", result.detected,
+			      result.confidenceMilli, result.inferenceTimeUs);
 
 	for (size_t i = 0; i < result.detectionCount && offset > 0 && (size_t)offset < sizeof(meta); i++) {
-		offset += snprintf(&meta[offset], sizeof(meta) - (size_t)offset,
-				    "%s{\"x\":%u,\"y\":%u,\"conf\":%u}", i ? "," : "", result.detections[i].x,
-				    result.detections[i].y, result.detections[i].confidenceMilli);
+		offset += snprintf(&meta[offset], sizeof(meta) - (size_t)offset, "%s{\"x\":%u,\"y\":%u,\"conf\":%u}",
+				   i ? "," : "", result.detections[i].x, result.detections[i].y,
+				   result.detections[i].confidenceMilli);
 	}
 
 	if (offset > 0 && (size_t)offset < sizeof(meta) - 2) {
@@ -204,7 +207,7 @@ void CaptureThreadFn(void *, void *, void *)
 			continue;
 		}
 
-		ResetDebounce(); // reset debounce
+		ResetDebounce();
 
 		int err = SetVideoActive(true);
 		if (err) {
