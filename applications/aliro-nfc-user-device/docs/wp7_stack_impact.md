@@ -8,9 +8,9 @@ AWP6 (and AWP3, for provisioning) already implemented against.
 
 ## What happened
 
-- This application's `docs/evidence.md` last recorded a tested `ncs-aliro`
-  revision of `1af821adc22e04545eea1ec8bb21cec743780ffa` ("WP6: complete
-  expedited crypto boundary and pre-WP7 fixes").
+- This application's `docs/evidence/AWP7.md` last recorded a tested
+  `ncs-aliro` revision of `1af821adc22e04545eea1ec8bb21cec743780ffa` ("WP6:
+  complete expedited crypto boundary and pre-WP7 fixes").
 - The checked-out `ncs-aliro` (`west-aliro.yml`, branch `user-device-dev`)
   has since advanced to `e5022e21b694a400d6349772185380a1bb5c5e8d` ("WP7-S9:
   complete-library campaign, WP7 traceability closure") through nine WP7
@@ -210,17 +210,16 @@ update` was run):
 
 ## What still needs to happen before resuming AWP work
 
-1. Update `docs/evidence.md` with a dated entry recording this fix pass and
-   the verification above (this document explains *what* and *why*;
-   `docs/evidence.md` is still the place for command-level pass/fail
-   evidence per `APP_PLAN.md` §4).
-2. Re-record the tested `ncs-aliro` revision
-   (`e5022e21b694a400d6349772185380a1bb5c5e8d`) in `docs/evidence.md`, per
-   `APP_PLAN.md`'s "After any stack update" rule.
-3. No DK-hardware demonstration of the new `mailbox_data_subset` CLI
+1. ~~Update the evidence log with a dated entry recording this fix pass and
+   the verification above~~ — done: see `docs/evidence/AWP7.md`'s
+   "Addendum: WP7 stack impact remediation" section, which records the
+   re-tested `ncs-aliro` revision (`e5022e21b694a400d6349772185380a1bb5c5e8d`)
+   per `APP_PLAN.md`'s "After any stack update" rule.
+2. No DK-hardware demonstration of the new `mailbox_data_subset` CLI
    command or the amendment-A6 single-session behavior was run (no
    physical NFC reader available in this environment, consistent with
    every prior AWP; and `mailbox inspect`/`credential set-mailbox-data-subset`
    are plain CLI commands with no NFC dependency, so this is a minor gap,
    not a blocker).
-4. Only then resume the next `TARGET_AWP` per `APP_PLAN.md`.
+3. Resume the next `TARGET_AWP` (AWP8) per `APP_PLAN.md`; see
+   `docs/STATE.md` for the current checkpoint.

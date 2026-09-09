@@ -1,245 +1,277 @@
-# Aliro NFC User Device POC — Architecture
+# Aliro NFC User Device — Architecture
 
-This document describes how the proof-of-concept application is structured, how it relates to the Aliro specification, and how the nRF54LM20B DK NFC hardware is used.
-
-## Purpose
-
-The goal of this POC is to validate the lowest layers of an Aliro User Device on Nordic hardware:
-
-1. NFC listen-mode operation on the DK's integrated NFCT peripheral
-2. Low-power standby using System OFF with NFC field wake
-3. Reception and inspection of the first message from an Aliro reader
-
-It deliberately stops before implementing Aliro session logic, cryptography, or credential handling. Those layers will be added in later iterations, either through a dedicated User Device stack or custom application code.
+This document describes the implemented Phase 1 application: its module
+boundaries, how it relates to the checked-out `Aliro::UserDeviceStack`
+facade, and how the nRF54LM20B DK NFC hardware is used. It supersedes the
+earlier proof-of-concept architecture document (System OFF/wake-on-field);
+that behavior was removed in AWP0 and Phase 1 explicitly excludes it (see
+`APP_PLAN.md` §5).
 
 ## Aliro roles: Reader vs User Device
 
-In an Aliro NFC transaction, two parties participate:
-
 | Role | NFC mode | Responsibility |
-|------|----------|----------------|
+|------|----------|-----------------|
 | **Reader** | Poll mode (PCD) | Generates the RF field, discovers the User Device, sends Access Protocol commands |
 | **User Device** | Listen mode (PICC) | Responds in the reader's field, receives and replies to APDUs |
 
-The Aliro specification requires both sides to support NFC-A, T4AT platform, and ISO-DEP (ISO 14443-4A). This POC implements the **User Device (listen)** side.
+This application implements the **User Device (listen)** side, using the
+DK's integrated NFCT peripheral (raw ISO-DEP mode via `nfc_t4t_lib`) rather
+than the external ST25R200/ST25R300 transceiver the Reader reference
+applications (`aliro-access-control-app`, `matter-aliro-door-lock-app`) use
+in poller mode.
 
-The existing applications in this repository (`aliro-access-control-app`, `matter-aliro-door-lock-app`) are **Readers**. They use an external NFC transceiver (ST25R200/ST25R300 via RFAL) in poller mode and integrate the `NCS_ALIRO` stack, which is currently a **Reader stack** (see `lib/aliro/Kconfig`).
+## Application versus stack boundary
 
-This POC is therefore architecturally distinct from the reference Reader apps: it uses the SoC's built-in NFCT peripheral and does not link against `NCS_ALIRO`.
+The application owns:
 
-## Hardware
+- nRF54LM20B DK and antenna bring-up.
+- NFC-A Type 4 Tag/ISO-DEP listen transport and field events.
+- Zephyr execution primitives — timers, queues, and synchronization.
+- PSA/CRACEN/KMU bindings for cryptographic primitives.
+- Credential, per-reader-group trust, key, optional-document, and mailbox
+  persistence.
+- Button authorization, visible indication, and the development CLI.
+- The `Aliro::Interface::UserDevice::*` implementations the checked-out
+  stack requires (`Nfc`, `Os`, `Crypto`, `CredentialSigning`, `Credential`,
+  `Trust`, `Authorization`, `Mailbox`).
 
-### nRF54LM20B DK
+The stack (`Aliro::UserDeviceStack`, west project `ncs-aliro`) owns:
 
-The nRF54LM20B DK includes a PCB-integrated NFC antenna connected to the chip's **NFCT** peripheral. No external NFC reader shield is required for User Device operation.
+- Aliro APDU and TLV encoding, decoding, chaining, and status words.
+- The Session and Access Protocol state machines.
+- `SELECT`, `AUTH0`, `LOAD CERT`, `AUTH1`, `EXCHANGE`, and `CONTROL FLOW`
+  behavior.
+- Aliro cryptographic orchestration and policy (KDF construction, protocol
+  sequencing, which exact bytes are signed/encrypted/derived).
 
-By contrast, the Reader reference applications connect an X-NUCLEO NFC expansion board (ST25R200/ST25R300) over SPI because the Reader must actively poll and power the RF field.
+The application uses the checked-out `Aliro::UserDeviceStack` facade for
+all stack-owned behavior and adds no fallback for absent or incomplete
+stack features; where the public contract cannot represent required
+behavior, the gap is recorded as `blocked-external-contract` or
+`not-yet-verifiable` in `traceability.md` rather than worked around.
 
-### Power and wake-up
-
-The POC targets **System OFF**, the deepest sleep state supported while retaining NFC field detection as a wake source. When System OFF is entered:
-
-- The CPU and most peripherals are powered down
-- The NFCT block remains configured to detect an external RF field
-- Detection of a field triggers a wake-up that appears to software as a **reset** (not a resume from sleep)
-
-On wake, the application reads the reset reason register and logs whether the cause was NFC field detect, pin reset, soft reset, or power-on.
-
-This approach follows Nordic's [NFC System OFF sample](https://docs.nordicsemi.com/bundle/ncs-latest/page/nrf/samples/nfc/system_off/README.html), adapted from Type 2 Tag to Type 4 Tag raw ISO-DEP mode.
-
-## Software architecture
-
-### Layer diagram
+## Module layout and data flow
 
 ```mermaid
 flowchart TB
-    subgraph app [Application — aliro-nfc-user-device]
-        MAIN[main.c]
-        CB[NFC event callback]
-        PM[System OFF scheduler]
-    end
+    main["main.cpp: boot sequencing"]
+    nfc["platform/nfc\n(nfc_t4t_lib adapter, ISO-DEP\nfragment assembly, worker thread)"]
+    os["platform/os\n(mutex, timer, queue,\nno-trusted-time stub)"]
+    crypto["platform/crypto\n(PSA bindings, cert validation)"]
+    auth["platform/authorization\n(button window, LED)"]
+    credential["storage/credential\n(settings/NVS + PSA/CRACEN/KMU,\njournal, trust bindings)"]
+    mailbox["storage/mailbox\n(session engine + Store)"]
+    cli["cli\n(aliro-ud shell tree)"]
+    lifecycle["lifecycle\n(mutating-op coordinator)"]
+    stack["Aliro::UserDeviceStack"]
 
-    subgraph ncs [nRF Connect SDK]
-        T4T[nfc_t4t_lib — raw ISO-DEP]
-        PLAT[NFC platform layer]
-    end
-
-    subgraph hw [Hardware]
-        NFCT[NFCT peripheral]
-        ANT[NFC antenna]
-    end
-
-    subgraph reader [External Aliro Reader]
-        RFAL[RFAL / ST25R poller]
-        ALIRO_R[NCS_ALIRO Reader stack]
-    end
-
-    MAIN --> T4T
-    CB --> MAIN
-    PM --> MAIN
-    T4T --> PLAT
-    PLAT --> NFCT
-    NFCT --> ANT
-    ANT <-. NFC field .-> RFAL
-    RFAL --> ALIRO_R
+    main --> nfc
+    main --> os
+    main --> cli
+    nfc --> lifecycle
+    lifecycle --> stack
+    cli --> lifecycle
+    os --> stack
+    stack --> crypto
+    stack --> auth
+    stack --> credential
+    stack --> mailbox
+    cli --> credential
+    cli --> mailbox
+    cli --> auth
 ```
 
-### NFC transport: T4T raw ISO-DEP mode
+`main.cpp` performs boot sequencing only — no protocol logic, no System OFF
+scheduling. `platform/*` and `storage/*` implement the application side of
+the checked-out public `Aliro::Interface::UserDevice::*` contract;
+`Aliro::UserDeviceStack` is the single facade every stack-owned behavior is
+routed through.
 
-Nordic's `nfc_t4t_lib` supports three emulation modes. This POC uses **raw ISO-DEP mode**:
+### NFC transport and the dedicated worker thread (`platform/nfc`)
 
-- Call `nfc_t4t_setup()` with an event callback
-- Do **not** call `nfc_t4t_ndef_rwpayload_set()` or `nfc_t4t_ndef_staticpayload_set()`
-- Call `nfc_t4t_emulation_start()`
+`nfc_t4t_lib` (raw ISO-DEP mode; no NDEF payload is registered) calls into
+`nfc_transport.cpp`'s callback only to copy/assemble bounded transport
+fragments (`apdu_fragment_assembler.cpp`) and enqueue an event onto a
+bounded queue — it never executes stack, storage, shell, or cryptographic
+operations directly. A dedicated high-priority thread (`nfc_worker.cpp`)
+drains that queue via `k_poll()`, multiplexed against a coalesced
+field-lifecycle semaphore, and is the only caller of
+`Aliro::UserDeviceStack::Instance().HandleCommandApdu()` /
+`ProcessEvent()`.
 
-In this mode the library handles NFC-A activation and ISO-DEP framing internally. Complete C-APDUs are delivered to the application through `NFC_T4T_EVENT_DATA_IND` callbacks. The application must respond with `nfc_t4t_response_pdu_send()`.
+This worker thread deterministically handles:
 
-This is the correct foundation for Aliro, which exchanges Access Protocol messages as ISO 7816-4 APDUs over ISO-DEP — not as NDEF records.
+- Idempotent `FIELD_ON`/`FIELD_OFF` (duplicate activation/removal events are
+  no-ops).
+- Stack-driven session termination racing a field-loss event.
+- Queue overflow: forces session recovery rather than silently dropping a
+  `FIELD_OFF`.
+- Command APDUs delivered with no session believed active: rejected
+  deterministically, never forwarded to the stack.
 
-NDEF emulation (read/write tag content) is used in simpler NFC demos but is not suitable for Aliro protocol traffic.
+Each response APDU is copied into a dedicated application-owned transmit
+buffer that remains unchanged until the next `nfc_t4t_lib` callback
+(`DATA_TRANSMITTED`, `DATA_IND`, or `FIELD_OFF`), satisfying the response-
+buffer lifetime the public `Nfc` contract requires.
 
-### Event handling
+### OS bridge (`platform/os`)
 
-The NFC callback in `src/main.c` handles four relevant event types:
+Thin Zephyr-backed implementations of the checked-out `Interface::UserDevice::Os`
+contract: mutex, timer, and a deferred-event queue. `os_trusted_time.cpp`
+returns no trusted wall-clock timestamp — Phase 1 provisions no wall clock
+and does not enforce Reader-certificate validity dates (see `platform/crypto`
+below). `os_logging.cpp` bridges the stack's role-neutral logging interface
+to Zephyr `LOG_*`.
 
-| Event | Action |
-|-------|--------|
-| `NFC_T4T_EVENT_FIELD_ON` | Cancel pending System OFF; reset APDU assembly; prepare for a new session |
-| `NFC_T4T_EVENT_FIELD_OFF` | Schedule System OFF after 3 s delay |
-| `NFC_T4T_EVENT_DATA_IND` | Accumulate APDU fragments; on last fragment, log first message and send placeholder R-APDU |
-| (other) | Ignored |
+### Cryptography (`platform/crypto`)
 
-APDU reassembly follows the `NFC_T4T_DI_FLAG_MORE` convention: fragments with the MORE flag belong to the same C-APDU; the final fragment triggers processing.
+Thin PSA Crypto bindings for random/ephemeral-key generation, raw ECDH,
+HKDF/HMAC-SHA-256 derivation, AES-GCM AEAD, ECDSA sign/verify, SHA-256, and
+key destruction (`crypto.cpp`). `certificate.cpp` implements the one
+non-thin operation: Aliro profile0000 DER decompression (Aliro
+specification §13.3), constrained X.509 reconstruction, issuer-CA signature
+verification, and subject-public-key extraction — with no wall-clock
+validity-date check, since Phase 1 has none. `credential_signing.cpp`
+resolves a `CredentialHandle` to its opaque PSA key identifier
+(`storage/credential`) and signs through that identifier only; a raw
+private-key scalar is never copied back into application memory.
 
-NFC callbacks are dispatched on a thread (via `CONFIG_NFC_THREAD_CALLBACK`, enabled by default in the NFC platform Kconfig), so logging and work-queue operations are safe inside the callback.
+### Authorization (`platform/authorization`)
 
-### Lifecycle sequence
+A device-global, host-testable button-authorization window
+(`authorization_window.{h,cpp}`) backing the `Interface::UserDevice::Authorization`
+contract (`authorization.cpp`). The application policy treats AUTH0
+`authentication_policy` values `0x01`, `0x02`, and `0x03` as all requiring a
+valid window. The window is button-driven (`authorization_button.cpp`, DK
+`Button 0`) and Kconfig-bounded to 1–300 seconds (default 30). No NFC
+transaction blocks waiting for a button press: `GetState()` returns
+synchronously so the stack fails the transaction promptly, and
+`authorization_led.cpp` lights an LED whenever authorization is required
+and no valid window exists.
 
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant T4T as nfc_t4t_lib
-    participant NFCT as NFCT HW
-    participant Reader as Aliro Reader
+### Credential and trust persistence (`storage/credential`)
 
-    App->>T4T: nfc_t4t_setup(callback)
-    App->>T4T: nfc_t4t_emulation_start()
-    App->>App: schedule System OFF (3 s)
+Zephyr settings/NVS-backed non-secret metadata plus PSA/CRACEN/KMU-backed
+private keys (`credential_store.cpp`, `key_backend_psa.cpp`,
+`credential_persistence_settings.cpp`). Every binding is modeled as
+`{ reader_group_identifier, trust_type, reader_group_identifier_key }`
+(`credential_types.h`), independent per binding — multiple bindings on one
+credential may use different keys. A four-phase crash-safe transaction
+journal (`provisioning.h`) spans NVS and PSA key storage so that importing a
+replacement key, switching committed metadata, and retiring the old key are
+atomic across reset/power loss; boot-time recovery finishes or rolls back
+any interrupted transaction and destroys unreferenced staged keys.
 
-    alt No reader present
-        App->>App: sys_poweroff()
-        Note over NFCT: Field sensing active
-    end
+Non-secret metadata (bindings, policy, timestamps, optional-document
+presence, mailbox configuration) is only ever mutated through the CLI's
+in-memory staging transaction (`begin-create`/`begin-update`/field
+setters/`commit`/`abort`) implemented in `src/cli/cli.cpp`; a `commit`,
+`delete`, or factory reset always runs through `lifecycle` (below).
 
-    Reader->>NFCT: RF field on
-    NFCT->>App: Reset (NFC wake)
-    App->>App: print_reset_reason()
-    App->>T4T: re-init listen mode
-    T4T-->>App: FIELD_ON
+### Mailbox persistence (`storage/mailbox`)
 
-    Reader->>T4T: ISO-DEP activation + C-APDU (SELECT)
-    T4T-->>App: DATA_IND (complete APDU)
-    App->>App: log first C-APDU
-    App->>T4T: response_pdu_send(6A82)
+Two layers: `mailbox_store.{h,cpp}` (a Credential-Issuer-level layer used
+directly by the CLI, bypassing Reader `MailboxPermissions`, per Aliro
+specification §8.3.1.15's "readable and writeable by the Credential
+Issuer") and `mailbox_sessions.{h,cpp}` (the Reader-facing,
+permission-enforcing session engine implementing
+`Interface::UserDevice::Mailbox`'s snapshot/staged-mutation/atomic-commit/
+rollback/close semantics, adapted in `mailbox.cpp`). Committed reads are
+served from a session's snapshot copy, isolated from any other session's
+staged writes; a session's entire staged buffer is applied to committed
+storage in one atomic call on `Commit()`, and `Rollback()`/`Close()` leave
+committed bytes unchanged. See `wp7_stack_impact.md` for the mid-project
+`StageSet()` signature change and the `mailbox_data_subset` provisioning
+surface this layer gained in response to a stack contract break.
 
-    Reader->>NFCT: RF field off
-    T4T-->>App: FIELD_OFF
-    App->>App: schedule System OFF (3 s)
-    App->>App: sys_poweroff()
-```
+### Development CLI (`src/cli`)
 
-## First message from an Aliro reader
+A Zephyr shell `aliro-ud` root command tree on the DK's virtual UART
+(115200-8N1). Every leaf command returns exactly one deterministic
+`OK ...`/`ERR ...` line and never prints secret values. Read-only commands
+(`info`, `credential list/inspect/bindings`, `mailbox inspect/read`,
+`auth status`, `timing stats`) may run at any time, including during an
+active NFC session.
 
-Per the Aliro specification, the Reader sends a **SELECT** command targeting the expedited-phase Application Identifier before starting the Access Protocol:
+### Lifecycle coordinator (`src/lifecycle`)
 
-```
-AID: A0 00 00 09 09 AC CE 55 01
-```
+Serializes every mutating CLI operation (`credential commit`/`delete`/
+`reset`, `mailbox init`/`reset`) against the NFC worker thread: prevent new
+activation, terminate any active stack session, perform the storage
+transaction, then resume NFC service. This is the only path allowed to
+mutate persistent credential/mailbox state while the NFC transport is live.
 
-A typical first C-APDU looks like:
+## Timing and resource instrumentation
 
-```
-00 A4 04 00 09 A0 00 00 09 09 AC CE 55 01
-│  │  │  │  │  └─ Data: Aliro expedited AID
-│  │  │  │  └─ Lc = 9
-│  │  │  └─ P2 = 00
-│  │  └─ P1 = 04 (select by name)
-│  └─ INS = A4 (SELECT)
-└─ CLA = 00
-```
-
-The POC logs the raw bytes, parses the four-byte C-APDU header, and searches the payload for the expedited AID constant defined in `main.c`.
-
-### Placeholder response
-
-A real User Device would reply to SELECT with a File Control Information (FCI) template that advertises the Aliro application. This POC instead sends status word **`6A82`** (file or application not found). That is sufficient to complete the ISO-DEP exchange for debugging purposes but will cause an Aliro reader to abort the transaction. This is intentional for the current scope.
-
-## Power management details
-
-### System OFF entry
-
-Before calling `sys_poweroff()`, the application:
-
-1. Waits for the UART console to reach a suspended state (when `CONFIG_PM_DEVICE` and `CONFIG_SERIAL` are enabled), so log lines are not cut off mid-transmission
-2. Relies on the NFCT driver to leave field sensing active across System OFF
-
-A delayed work item (`s_system_off_work`) triggers System OFF 3 seconds after boot or after the NFC field is removed. The delay prevents immediate power-down during brief field transitions.
-
-### Why not CPU deep sleep?
-
-System OFF was chosen because:
-
-- It provides the lowest average current while waiting for a tap
-- NFCT field detect wake is a well-supported, documented Nordic mechanism
-- It matches the power profile expected of a passive User Device (card-like behavior)
-
-CPU sleep (for example, `k_sleep` with retention) would keep more of the system powered and is better suited to later stages where the device must maintain state across shorter idle periods within an active session.
+`platform/nfc/command_timing.{h,cpp}` is a small, Kconfig-gated
+(`CONFIG_ALIRO_UD_TIMING_INSTRUMENTATION`, default `y`) class measuring the
+application boundary from command-APDU delivery to response send (wrapping
+the single call into `HandleCommandApdu()` in `nfc_worker.cpp`), exposed
+read-only via `aliro-ud timing stats`/`reset`. It compiles out entirely when
+disabled (`target_sources_ifdef()`), so it adds no cost to production
+builds. See `evidence/AWP7.md` for the measured FLASH/RAM delta and why no
+normative numeric NFC timing bound applicable to this application's PICS
+was found in the Aliro 1.0 Specification and Test Plan.
 
 ## Configuration
 
-Key Kconfig options in `prj.conf`:
+Key Kconfig options across the module tree:
 
 | Option | Purpose |
 |--------|---------|
-| `CONFIG_NFC_T4T_NRFXLIB` | Enable Type 4 Tag library (ISO-DEP listen mode) |
-| `CONFIG_POWEROFF` | Enable `sys_poweroff()` API |
-| `CONFIG_PM_DEVICE` | Allow UART suspend before System OFF |
-| `CONFIG_LOG_MODE_IMMEDIATE` | Emit logs synchronously for easier debug over UART |
+| `CONFIG_NCS_ALIRO_USER_DEVICE` | Enable the checked-out `Aliro::UserDeviceStack` facade (module-supplied Kconfig/CMake integration) |
+| `CONFIG_NFC_T4T_NRFXLIB` | NFC-A Type 4 Tag library (ISO-DEP listen mode) |
+| `CONFIG_SHELL` | Development CLI over the DK virtual UART |
+| `CONFIG_ALIRO_UD_AUTHORIZATION_WINDOW_SECONDS` | Button-authorization window length, 1–300 s (default 30) |
+| `CONFIG_ALIRO_UD_MAILBOX_MAX_SESSIONS` | Concurrent open mailbox sessions (default 2, range 1–8) |
+| `CONFIG_ALIRO_UD_MAILBOX_MAX_DATA_SUBSET_PAIRS` | Provisionable AUTH1 `mailbox_data_subset` pairs (default 4, range 0–32) |
+| `CONFIG_ALIRO_UD_TIMING_INSTRUMENTATION` | Command-to-response timing instrumentation (default `y`, fully removable) |
+| `CONFIG_MAIN_STACK_SIZE` / `CONFIG_SHELL_STACK_SIZE` | Raised from Zephyr defaults after two on-target stack-overflow faults found in AWP4/AWP6; see `prj.conf` comments and `evidence/AWP4.md`/`AWP6.md` |
 
-Board-specific files under `boards/` enable runtime power management on `uart20` for the nRF54LM20 DK.
+Board-specific overlay/conf files live under `boards/`.
 
 ## Source layout
 
 ```
 applications/aliro-nfc-user-device/
-├── CMakeLists.txt          # Zephyr application definition
-├── prj.conf                # Kconfig
-├── sample.yaml             # Twister build test
-├── README.md               # Quick start (this repo level)
-├── docs/
-│   └── architecture.md     # This document
+├── CMakeLists.txt, Kconfig, prj.conf, sample.yaml
 ├── boards/
-│   ├── nrf54lm20dk_nrf54lm20b_cpuapp.conf
-│   └── nrf54lm20dk_nrf54lm20b_cpuapp.overlay
+│   └── nrf54lm20dk_nrf54lm20b_cpuapp.{conf,overlay}
+├── docs/
+│   ├── architecture.md          (this document)
+│   ├── provisioning.md
+│   ├── traceability.md
+│   ├── wp7_stack_impact.md
+│   ├── STATE.md
+│   └── evidence/AWP<n>.md
 └── src/
-    └── main.c              # NFC init, System OFF, first-APDU logging
+    ├── main.cpp
+    ├── lifecycle/lifecycle.h
+    ├── platform/
+    │   ├── nfc/        (nfc_transport, nfc_worker, apdu_fragment_assembler, command_timing)
+    │   ├── os/         (os_mutex, os_timer, os_queue, os_trusted_time, os_logging, app_status, transaction)
+    │   ├── crypto/      (crypto, certificate, credential_signing)
+    │   └── authorization/ (authorization, authorization_window, authorization_button, authorization_led)
+    ├── storage/
+    │   ├── credential/ (credential_store, credential_persistence_settings, key_backend_psa, credential_types, provisioning)
+    │   └── mailbox/    (mailbox, mailbox_sessions, mailbox_store, mailbox_persistence_settings, mailbox_types)
+    └── cli/cli.cpp
 ```
 
-## Relationship to future Aliro User Device work
-
-The intended evolution path:
-
-1. **Current POC** — NFC listen + System OFF wake + first APDU logging (this application)
-2. **Transport layer** — Proper SELECT/FCI handling, chained APDU support, session lifecycle aligned with Aliro NFC requirements
-3. **Protocol layer** — Integrate a User Device Aliro stack (when available) or implement Access Protocol state machine
-4. **Credential layer** — Access credentials, secure storage, expedited-fast phase, step-up phase
-
-The Reader-side transport pattern in this repository (`NfcTransportRfal` in the access control apps) is the mirror image of what a User Device transport will need: instead of polling and detecting cards, it listens and receives APDUs; instead of `CreateSession` on detection, it signals the stack when the reader selects the Aliro application.
+Host tests mirror this layout under
+`tests/functional/subsys/aliro_nfc_user_device/{apdu_fragment_assembler,
+authorization, cli_info, command_timing, crypto, host_smoke, mailbox,
+worker_lifecycle}/`.
 
 ## References
 
-- Aliro 1.0 Specification — Section 10.1 (Reader and User Device NFC requirements)
-- Nordic NFC Type 4 Tag library: `nrfxlib/nfc/include/nfc_t4t_lib.h`
-- Nordic NFC System OFF sample: `nrf/samples/nfc/system_off/`
-- Reader reference in this repo: `applications/aliro-access-control-app/`
-- NFC integration docs in this repo: `docs/wireless_technologies/nfc/nfc_integration.rst`
+- Aliro 1.0 Specification and Test Plan — queried through the `aliro-spec`
+  MCP; see `docs/traceability.md` for the exact citation used at each
+  requirement row and `docs/evidence/AWP<n>.md` for citations used to
+  resolve implementation-time ambiguity.
+- Checked-out `ncs-aliro` public headers:
+  `include/aliro/user_device/{interface,types,mailbox}.h`.
+- Nordic NFC Type 4 Tag library: `nrfxlib/nfc/include/nfc_t4t_lib.h`.
+- Reader reference in this repository: `applications/aliro-access-control-app/`.
+- `APP_PLAN.md` — the work-package plan and boundary rules this
+  architecture implements.

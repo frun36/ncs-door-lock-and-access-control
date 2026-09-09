@@ -181,8 +181,10 @@ Deliver:
   `src/storage/{credential,mailbox}`, and `src/cli`, each with appropriate
   CMake files. Do not reuse Reader-only sources.
 - Create `docs/traceability.md` with one row for every Phase 1 requirement and
-  `docs/evidence.md` with the target AWP, exact stack revision, commands run,
-  verification method, result, and external blockers.
+  `docs/evidence/AWP<n>.md` (one file per AWP) with the target AWP, exact
+  stack revision, commands run, verification method, result, and external
+  blockers. Also create `docs/STATE.md` (see §4's per-AWP checklist) as the
+  durable checkpoint every subsequent invocation reads first.
 
 Verify:
 
@@ -464,8 +466,9 @@ Deliver:
   - `not-yet-verifiable` with the missing external capability
   - `blocked-external-contract` with the exact missing public contract
 - Do not encode stack work-package numbers in statuses.
-- Finalize `docs/evidence.md` with exact commands, revisions, target results,
-  selected PICS, timing/resource reports, and outstanding blockers.
+- Finalize this AWP's `docs/evidence/AWP<n>.md` with exact commands,
+  revisions, target results, selected PICS, timing/resource reports, and
+  outstanding blockers.
 - Document the field-based provisioning workflow and every deterministic CLI
   result without including real secret values.
 
@@ -489,7 +492,8 @@ For each AWP:
 3. Run every host, build, inspection, analysis, and DK check required by that
    AWP. Do not treat a written hardware checklist as a passing demonstration.
 4. Map actual evidence to the SyRS verification method (`T`, `D`, `I`, or
-   `A`) in `docs/evidence.md` and update the affected traceability rows.
+   `A`) in this AWP's `docs/evidence/AWP<n>.md` and update the affected
+   traceability rows.
 5. Separate application defects, unavailable stack capabilities, and
    inadequate public stack contracts.
 6. Record Aliro specification citations used to resolve ambiguity.
@@ -498,8 +502,12 @@ For each AWP:
 8. Commit only when every required check passes. If hardware or another
    required verifier is unavailable, leave the changes uncommitted and report
    the remaining command or physical action precisely - ask the user for further steps.
-9. Stop after reporting the target AWP result. Never begin the next AWP in the
-   same invocation.
+9. Before stopping, rewrite `docs/STATE.md` in full (never append) to reflect
+   the true end-of-invocation state: active/next `TARGET_AWP`, blockers, the
+   exact next action, and at most 5 short carry-forward conclusions. Point to
+   this AWP's `docs/evidence/AWP<n>.md` for detail rather than restating it.
+10. Stop after reporting the target AWP result. Never begin the next AWP in
+    the same invocation.
 
 After any stack update:
 

@@ -168,6 +168,78 @@ ZTEST(aliro_ud_crypto, test_derive_symmetric_key_round_trips_through_aead)
 	DestroyKey(symmetricKeyId);
 }
 
+ZTEST(aliro_ud_crypto, test_aead_round_trips_pre_chaining_payload_lengths)
+{
+	const std::array<uint8_t, 32> key{ 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+					   0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+					   0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+					   0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F };
+	KeyId keyId{};
+	zassert_equal(ALIRO_NO_ERROR, ImportKey(key.data(), key.size(), keyId));
+
+	const std::array<size_t, 3> payloadLengths{ 512, 513, 2048 };
+	for (const size_t payloadLength : payloadLengths) {
+		std::vector<uint8_t> plainText(payloadLength);
+		for (size_t i = 0; i < plainText.size(); ++i) {
+			plainText[i] = static_cast<uint8_t>(i);
+		}
+
+		std::vector<uint8_t> cipherText(payloadLength);
+		AuthenticationTag tag{};
+		Nonce nonce{};
+		zassert_equal(ALIRO_NO_ERROR,
+			      AeadEncrypt(keyId, plainText.data(), plainText.size(), nullptr, 0, nonce,
+					  cipherText.data(), tag));
+
+		std::vector<uint8_t> cipherTextWithTag(payloadLength + tag.size());
+		memcpy(cipherTextWithTag.data(), cipherText.data(), cipherText.size());
+		memcpy(cipherTextWithTag.data() + cipherText.size(), tag.data(), tag.size());
+
+		std::vector<uint8_t> decrypted(payloadLength);
+		size_t decryptedLength{ decrypted.size() };
+		zassert_equal(ALIRO_NO_ERROR,
+			      AeadDecrypt(keyId, cipherTextWithTag.data(), cipherTextWithTag.size(), nullptr, 0,
+					  nonce, decrypted.data(), decryptedLength));
+		zassert_equal(payloadLength, decryptedLength);
+		zassert_mem_equal(plainText.data(), decrypted.data(), plainText.size());
+	}
+
+	zassert_equal(ALIRO_NO_ERROR, DestroyKey(keyId));
+}
+
+ZTEST(aliro_ud_crypto, test_aead_encrypt_failures_leave_caller_buffers_unchanged)
+{
+	std::array<uint8_t, 2049> oversizedPlainText{};
+	std::array<uint8_t, 2049> cipherText{};
+	cipherText.fill(0xA5);
+	AuthenticationTag tag{};
+	tag.fill(0x5A);
+	Nonce nonce{};
+
+	zassert_equal(ALIRO_INVALID_ARGUMENT,
+		      AeadEncrypt(0, oversizedPlainText.data(), oversizedPlainText.size(), nullptr, 0, nonce,
+				  cipherText.data(), tag));
+	for (const uint8_t value : cipherText) {
+		zassert_equal(0xA5, value);
+	}
+	for (const uint8_t value : tag) {
+		zassert_equal(0x5A, value);
+	}
+
+	std::array<uint8_t, 512> validPlainText{};
+	cipherText.fill(0xC3);
+	tag.fill(0x3C);
+	zassert_equal(ALIRO_ERROR_INTERNAL,
+		      AeadEncrypt(0, validPlainText.data(), validPlainText.size(), nullptr, 0, nonce,
+				  cipherText.data(), tag));
+	for (size_t i = 0; i < validPlainText.size(); ++i) {
+		zassert_equal(0xC3, cipherText[i]);
+	}
+	for (const uint8_t value : tag) {
+		zassert_equal(0x3C, value);
+	}
+}
+
 ZTEST(aliro_ud_crypto, test_derive_raw_key_is_deterministic_for_same_inputs)
 {
 	psa_key_attributes_t ikmAttributes = PSA_KEY_ATTRIBUTES_INIT;

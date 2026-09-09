@@ -27,7 +27,7 @@
  * `CredentialHandle` (the checked-out public User Device headers and the
  * stack's own User Device sources never construct or consume a
  * `MailboxHandle` value); this is an application-only design decision,
- * documented in `docs/evidence.md`: since Phase 1 provisions at most one
+ * documented in `docs/evidence/AWP6.md`: since Phase 1 provisions at most one
  * mailbox per Access Credential, `MailboxHandle` numerically equals its
  * owning `CredentialHandle` (see `HandleForCredential()`/
  * `CredentialForHandle()` in `mailbox_store.h`).

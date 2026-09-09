@@ -207,7 +207,7 @@ TimingConstraints GetTimingConstraints(ConnectionHandle handle)
 	 * therefore no value this function could report that the caller
 	 * could act on. `command_timing.h`'s command-to-response duration
 	 * measurements are AWP7's informational/regression evidence for
-	 * ALIRO-UD-SYRS-P1-040 instead (see docs/evidence.md).
+	 * ALIRO-UD-SYRS-P1-040 instead (see docs/evidence/AWP7.md).
 	 */
 	return TimingConstraints{};
 }

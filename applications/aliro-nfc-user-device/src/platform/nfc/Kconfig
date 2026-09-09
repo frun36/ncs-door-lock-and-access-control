@@ -29,7 +29,7 @@ config ALIRO_UD_NFC_EVENT_QUEUE_DEPTH
 	help
 	  Depth of the bounded queue feeding the NFC/stack worker thread.
 	  Events posted while the queue is full are dropped deterministically
-	  (logged, never blocking the producer); see docs/evidence.md.
+	  (logged, never blocking the producer); see docs/evidence/AWP1.md.
 
 config ALIRO_UD_TIMING_INSTRUMENTATION
 	bool "Command-to-response timing instrumentation"
@@ -40,7 +40,7 @@ config ALIRO_UD_TIMING_INSTRUMENTATION
 	  which point it has already synchronously sent the response APDU),
 	  as informational/regression evidence (APP_PLAN.md AWP7: no
 	  normative NFC processing-time bound applies to this application's
-	  PICS; see docs/evidence.md). Lightweight (one k_uptime_get_32()
+	  PICS; see docs/evidence/AWP7.md). Lightweight (one k_uptime_get_32()
 	  call and a handful of integer updates per command) and safe to
 	  disable entirely for production builds that do not need it: its
 	  one source file is not even compiled in when this is disabled.

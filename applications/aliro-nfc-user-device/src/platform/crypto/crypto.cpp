@@ -313,10 +313,11 @@ AliroError DeriveRawKey(KeyId keyId, const uint8_t *info, size_t infoLength, con
 }
 
 namespace {
-/* Generous bound covering the largest plaintext this application ever AEADs
- * (Access Protocol payloads and mailbox EXCHANGE data, both far below this).
+/* Match the stack's pre-chaining capacity for Access Protocol payloads.
+ * Keep this bound at least as large as the maximum plaintext that can reach
+ * the provider before APDU segmentation is applied.
  */
-constexpr size_t kMaxAeadPlainTextLength{ 512 };
+constexpr size_t kMaxAeadPlainTextLength{ 2048 };
 } // namespace
 
 AliroError AeadEncrypt(KeyId keyId, const uint8_t *plainText, size_t plainTextLength, const uint8_t *additionalData,

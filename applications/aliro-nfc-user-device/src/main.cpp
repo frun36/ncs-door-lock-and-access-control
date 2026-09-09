@@ -56,7 +56,7 @@ int main(void)
 		 * header but its definition (stack/src/errors/errors.cpp) is only
 		 * built for CONFIG_NCS_ALIRO (Reader); a User-Device-only build
 		 * cannot link it. Use the numeric code instead of narrowing this
-		 * skeleton around that gap; see docs/evidence.md.
+		 * skeleton around that gap; see docs/evidence/AWP0.md.
 		 */
 		LOG_ERR("User Device stack initialization failed: %d", err.ToInt());
 		AliroUd::AppStatus::SetInitState(AliroUd::AppStatus::InitState::StackInitFailed);

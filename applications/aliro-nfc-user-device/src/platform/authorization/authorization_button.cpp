@@ -32,7 +32,7 @@
  * measurably overflowed the interrupt stack on-target (`K_ERR_STACK_CHK_FAIL`,
  * caught by the Armv8-M stack-limit registers) even though
  * `CONFIG_ISR_STACK_SIZE` is unchanged from the SoC default; see
- * docs/evidence.md AWP4 for the on-target crash this fixes.
+ * docs/evidence/AWP4.md for the on-target crash this fixes.
  */
 LOG_MODULE_DECLARE(aliro_ud_authorization, CONFIG_ALIRO_UD_AUTHORIZATION_LOG_LEVEL);
 
