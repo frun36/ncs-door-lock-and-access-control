@@ -229,8 +229,7 @@ public:
 	 * @brief Handles a gesture detection event from the gesture-access camera module.
 	 *
 	 * Called from the gesture-access capture thread/work item whenever inference detects
-	 * the unlock gesture. Only has an effect while a ranging session is currently within
-	 * range (i.e. GestureAccess::SetOpenAllowed(true) is in effect).
+	 * the unlock gesture. Only has an effect when an eligible ranging session allows open.
 	 */
 	void HandleGestureDetected();
 #endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS

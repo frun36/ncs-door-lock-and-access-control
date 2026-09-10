@@ -76,8 +76,8 @@ int SetVideoActive(bool active)
 
 	if (active) {
 		err = video_stream_start(sVideoDevice, VIDEO_BUF_TYPE_OUTPUT);
-		LOG_ERR("video_stream_start failed (err %d)", err);
 		if (err) {
+			LOG_ERR("video_stream_start failed (err %d)", err);
 			return err;
 		}
 	}
@@ -85,7 +85,7 @@ int SetVideoActive(bool active)
 	err = gpio_pin_set_dt(&sCameraLed, active);
 	if (err) {
 		LOG_ERR("Failed to set camera LED (err %d)", err);
-		return err;
+		// don't return - this doesn't affect detection
 	}
 
 	LOG_INF("Video %s", active ? "activated" : "deactivated");

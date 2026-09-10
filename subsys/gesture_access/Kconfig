@@ -27,7 +27,7 @@ config DOOR_LOCK_GESTURE_ACCESS_DETECTION_THRESHOLD_MILLI
 	  Minimum model confidence required for a grid cell to count as a
 	  detection, expressed as permille (900 = 90.0%). The bundled FOMO
 	  model has been trained with this parameter set at 90% - changing
-	  it may degrade perfomance.
+	  it may degrade performance.
 
 module = DOOR_LOCK_GESTURE_ACCESS
 module-str = Door Lock gesture access
