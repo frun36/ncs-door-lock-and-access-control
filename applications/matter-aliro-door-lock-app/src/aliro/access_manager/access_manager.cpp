@@ -108,4 +108,11 @@ void AccessManager::HandleSessionTermination(SessionContext sessionContext)
 	return Impl()->_HandleSessionTermination(sessionContext);
 }
 
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+void AccessManager::HandleGestureDetected()
+{
+	return Impl()->_HandleGestureDetected();
+}
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
+
 } // namespace Aliro

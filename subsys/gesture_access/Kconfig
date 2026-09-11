@@ -6,6 +6,7 @@
 
 menuconfig DOOR_LOCK_GESTURE_ACCESS
 	bool "Door Lock gesture access (SPI camera + on-device inference)"
+	depends on DOOR_LOCK_BLE_UWB
 	select CPP
 	select NRF_AXON
 	help
@@ -21,12 +22,12 @@ config NRF_AXON_INTERLAYER_BUFFER_SIZE
 config DOOR_LOCK_GESTURE_ACCESS_DETECTION_THRESHOLD_MILLI
 	int "Detection confidence threshold in permille (0-1000)"
 	range 0 1000
-	default 950
+	default 900
 	help
 	  Minimum model confidence required for a grid cell to count as a
-	  detection, expressed as permille (950 = 95.0%). Tuned for the
-	  bundled FOMO model; changing it without re-evaluating the model
-	  may affect false-positive rate.
+	  detection, expressed as permille (900 = 90.0%). The bundled FOMO
+	  model has been trained with this parameter set at 90% - changing
+	  it may degrade performance.
 
 module = DOOR_LOCK_GESTURE_ACCESS
 module-str = Door Lock gesture access
@@ -52,7 +53,8 @@ config DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
 	  share a channel.
 
 	  Not intended for production builds: it adds a USB channel and
-	  per-frame transmit overhead purely for debugging.
+	  per-frame transmit overhead purely for debugging. It's also a
+	  security concern.
 
 if DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
 
@@ -93,21 +95,13 @@ config DOOR_LOCK_GESTURE_ACCESS_THREAD_PRIORITY
 	  threads while it blocks on frame capture and runs
 	  inference.
 
-config DOOR_LOCK_GESTURE_ACCESS_DEBOUNCE_CONFIRM_FRAMES
-	int "Consecutive detecting frames required to confirm a gesture"
+config DOOR_LOCK_GESTURE_ACCESS_DEBOUNCE_FRAMES
+	int "Consecutive detecting frames required to confirm gesture"
 	range 1 255
-	default 3
+	default 5
 	help
 	  Number of consecutive frames with at least one model detection
 	  required before the debounced detection state is reported as
 	  "detected". Filters out single-frame false positives.
-
-config DOOR_LOCK_GESTURE_ACCESS_DEBOUNCE_RELEASE_FRAMES
-	int "Consecutive non-detecting frames required to release a gesture"
-	range 1 255
-	default 2
-	help
-	  Number of consecutive frames with no model detection required
-	  before the debounced detection state falls back to "not detected".
 
 endif # DOOR_LOCK_GESTURE_ACCESS
