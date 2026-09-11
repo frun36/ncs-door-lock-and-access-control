@@ -4,16 +4,13 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+#include "gesture_access/gesture_access.h"
 #include "aliro/utils.h"
-#include "zephyr/kernel.h"
-#include <atomic>
-#include <gesture_access/gesture_access.h>
+#include "gesture_access_model.h"
 
 #ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
 #include "frame_forwarding.h"
 #endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
-
-#include "gesture_access_model.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -45,7 +42,7 @@ const device *sVideoDevice = DEVICE_DT_GET(DT_NODELABEL(arducam_mega));
 const gpio_dt_spec sCameraLed = GPIO_DT_SPEC_GET(DT_NODELABEL(led3), gpios);
 
 k_sem sActivateSignal;
-std::atomic<bool> sActive;
+atomic_t sActive;
 uint8_t sGrayscaleFrame[Model::kInputSize];
 uint32_t sDetectionCount;
 bool sConfirmedDetected;
@@ -62,24 +59,15 @@ int SetVideoActive(bool active)
 	int err;
 	if (!active) {
 		err = video_stream_stop(sVideoDevice, VIDEO_BUF_TYPE_OUTPUT);
-		if (err) {
-			LOG_ERR("video_stream_stop failed (err %d)", err);
-			return err;
-		}
+		VerifyOrReturnStatus(err == 0, err, LOG_ERR("video_stream_stop failed (err %d)", err));
 	}
 
 	err = video_set_ctrl(sVideoDevice, &ctrl);
-	if (err) {
-		LOG_ERR("video_set_ctrl failed (err %d)", err);
-		return err;
-	}
+	VerifyOrReturnStatus(err == 0, err, LOG_ERR("video_set_ctrl failed (err %d)", err));
 
 	if (active) {
 		err = video_stream_start(sVideoDevice, VIDEO_BUF_TYPE_OUTPUT);
-		if (err) {
-			LOG_ERR("video_stream_start failed (err %d)", err);
-			return err;
-		}
+		VerifyOrReturnStatus(err == 0, err, LOG_ERR("video_stream_start failed (err %d)", err));
 	}
 
 	err = gpio_pin_set_dt(&sCameraLed, active);
@@ -111,9 +99,7 @@ void HandleDetectionResult(const Model::Result &res)
 	}
 
 	// React only to detection state rising edge
-	if (sConfirmedDetected) {
-		return;
-	}
+	VerifyOrReturn(!sConfirmedDetected);
 
 	sDetectionCount++;
 	LOG_INF("DETECTION | OK (count %u)", sDetectionCount);
@@ -137,9 +123,7 @@ void ExtractGrayscale(const video_buffer &vbuf, size_t &grayscaleBytesFilled)
 #ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
 void ForwardFrameIfHostReady(const Model::Result &result)
 {
-	if (!FrameForwarding::HostReady()) {
-		return;
-	}
+	VerifyOrReturn(FrameForwarding::HostReady());
 
 	char meta[256];
 	int offset = snprintf(meta, sizeof(meta), "{\"det\":%d,\"conf\":%u,\"us\":%u,\"pts\":[", result.detected,
@@ -169,26 +153,17 @@ int CaptureAndInferOneFrame()
 		video_buffer *vbuf;
 		int err = video_dequeue(sVideoDevice, &vbuf, K_MSEC(1000));
 
-		if (err) {
-			LOG_ERR("video_dequeue failed (err %d)", err);
-			return err;
-		}
+		VerifyOrReturnStatus(err == 0, err, LOG_ERR("video_dequeue failed (err %d)", err));
 
 		ExtractGrayscale(*vbuf, grayscaleBytesFilled);
 
 		err = video_enqueue(sVideoDevice, vbuf);
-		if (err) {
-			LOG_ERR("video_enqueue failed (err %d)", err);
-			return err;
-		}
+		VerifyOrReturnStatus(err == 0, err, LOG_ERR("video_enqueue failed (err %d)", err));
 	}
 
 	Model::Result result;
 	int err = Model::Run(sGrayscaleFrame, Model::kInputSize, result);
-	if (err) {
-		LOG_ERR("Model::Run failed (err %d)", err);
-		return err;
-	}
+	VerifyOrReturnStatus(err == 0, err, LOG_ERR("Model::Run failed (err %d)", err));
 
 	HandleDetectionResult(result);
 
@@ -203,7 +178,7 @@ void CaptureThreadFn(void *, void *, void *)
 {
 	for (;;) {
 		k_sem_take(&sActivateSignal, K_FOREVER);
-		if (!sActive.load()) {
+		if (!atomic_get(&sActive)) {
 			continue;
 		}
 
@@ -215,7 +190,7 @@ void CaptureThreadFn(void *, void *, void *)
 			continue;
 		}
 
-		while (sActive.load()) {
+		while (atomic_get(&sActive)) {
 			CaptureAndInferOneFrame();
 		}
 
@@ -238,23 +213,14 @@ int Init(GestureDetectedCallback callback)
 
 	LOG_INF("Gesture access init");
 
-	if (!gpio_is_ready_dt(&sCameraLed)) {
-		LOG_ERR("Camera LED is not ready");
-		return -ENODEV;
-	}
+	VerifyOrReturnStatus(gpio_is_ready_dt(&sCameraLed), -ENODEV, LOG_ERR("Camera LED is not ready"));
 
 	int err = gpio_pin_configure_dt(&sCameraLed, GPIO_OUTPUT_INACTIVE);
-	if (err) {
-		LOG_ERR("Failed to configure camera LED (err %d)", err);
-		return err;
-	}
+	VerifyOrReturnStatus(err == 0, err, LOG_ERR("Failed to configure camera LED (err %d)", err));
 
 	k_sem_init(&sActivateSignal, 0, 1);
 
-	if (!device_is_ready(sVideoDevice)) {
-		LOG_ERR("Video device not ready");
-		return -ENODEV;
-	}
+	VerifyOrReturnStatus(device_is_ready(sVideoDevice), -ENODEV, LOG_ERR("Video device not ready"));
 
 	video_format fmt{
 		.type = VIDEO_BUF_TYPE_OUTPUT,
@@ -265,28 +231,19 @@ int Init(GestureDetectedCallback callback)
 	};
 
 	err = video_set_format(sVideoDevice, &fmt);
-	if (err) {
-		LOG_ERR("Failed to set video format (err %d)", err);
-		return err;
-	}
+	VerifyOrReturnStatus(err == 0, err, LOG_ERR("Failed to set video format (err %d)", err));
 
 	for (size_t i = 0; i < kVideoBufferCount; i++) {
 		video_buffer *vbuf = video_buffer_alloc(kVideoChunkBytes, K_NO_WAIT);
 
-		if (vbuf == nullptr) {
-			LOG_ERR("Failed to allocate video buffer %zu", i);
-			return -ENOMEM;
-		}
+		VerifyOrReturnStatus(vbuf != nullptr, -ENOMEM, LOG_ERR("Failed to allocate video buffer %zu", i));
 
 		vbuf->type = VIDEO_BUF_TYPE_OUTPUT;
 		video_enqueue(sVideoDevice, vbuf);
 	}
 
 	err = Model::Init();
-	if (err) {
-		LOG_ERR("Failed to init model (err %d)", err);
-		return err;
-	}
+	VerifyOrReturnStatus(err == 0, err, LOG_ERR("Failed to init model (err %d)", err));
 
 #ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS_FRAME_FORWARDING
 	err = FrameForwarding::Init();
@@ -302,7 +259,7 @@ int Init(GestureDetectedCallback callback)
 
 void SetDetectionActive(bool active)
 {
-	sActive.store(active);
+	atomic_set(&sActive, active);
 	k_sem_give(&sActivateSignal);
 }
 

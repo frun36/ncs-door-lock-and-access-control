@@ -1332,13 +1332,14 @@ void AccessManagerImpl::_HandleGestureDetected()
 				break;
 			}
 		}
-
-		if (!publicKey.has_value()) {
-			LOG_WRN("Gesture confirmed, but no eligible UWB session");
-			DoorLock::GestureAccess::SetDetectionActive(false);
-			return;
-		}
 	}
+
+	if (!publicKey.has_value()) {
+		LOG_WRN("Gesture confirmed, but no eligible UWB session");
+		DoorLock::GestureAccess::SetDetectionActive(false);
+		return;
+	}
+
 	LOG_INF("Gesture confirmed, unlocking door");
 	UnlockAction(false, publicKey.value());
 
