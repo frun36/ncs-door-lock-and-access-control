@@ -526,6 +526,27 @@ AliroError GetMetadata(CredentialHandle handle, CredentialMetadata &outMetadata)
 	return ALIRO_NO_ERROR;
 }
 
+AliroError GetSignedTimestamps(CredentialHandle handle, CredentialSignedTimestamps &outTimestamps)
+{
+	outTimestamps = CredentialSignedTimestamps{};
+	Lock lock;
+
+	size_t slotIndex{};
+	if (!HandleToSlotIndex(handle, slotIndex) || !sSlots[slotIndex].mValid) {
+		return ALIRO_INVALID_ARGUMENT;
+	}
+
+	const auto &record = sSlots[slotIndex];
+	if (record.mHasCredentialSignedTimestamp) {
+		outTimestamps.mCredentialSignedTimestamp = record.mCredentialSignedTimestamp;
+	}
+	if (record.mHasRevocationSignedTimestamp) {
+		outTimestamps.mRevocationSignedTimestamp = record.mRevocationSignedTimestamp;
+	}
+
+	return ALIRO_NO_ERROR;
+}
+
 AliroError GetFullRecord(CredentialHandle handle, PersistedCredential &out)
 {
 	out = PersistedCredential{};
