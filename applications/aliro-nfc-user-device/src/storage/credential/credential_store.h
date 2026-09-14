@@ -65,6 +65,10 @@ AliroError Reset();
 /** @brief Gets non-secret metadata for a credential. */
 AliroError GetMetadata(::Aliro::UserDevice::CredentialHandle handle, ::Aliro::UserDevice::CredentialMetadata &outMetadata);
 
+/** @brief Gets the provisioned signed timestamps for a credential (ALIRO-UD-SYRS-P1-030). */
+AliroError GetSignedTimestamps(::Aliro::UserDevice::CredentialHandle handle,
+				::Aliro::UserDevice::CredentialSignedTimestamps &outTimestamps);
+
 /** @brief Gets the full non-secret persisted record for a credential (for CLI inspection). */
 AliroError GetFullRecord(::Aliro::UserDevice::CredentialHandle handle, PersistedCredential &out);
 

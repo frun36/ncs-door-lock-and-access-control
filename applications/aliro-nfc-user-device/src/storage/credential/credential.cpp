@@ -90,6 +90,12 @@ AliroError GetMetadata(::Aliro::UserDevice::CredentialHandle handle,
 	return AliroUd::Credential::Store::GetMetadata(handle, outMetadata);
 }
 
+AliroError GetSignedTimestamps(::Aliro::UserDevice::CredentialHandle handle,
+				::Aliro::UserDevice::CredentialSignedTimestamps &outTimestamps)
+{
+	return AliroUd::Credential::Store::GetSignedTimestamps(handle, outTimestamps);
+}
+
 } // namespace Aliro::Interface::UserDevice::Credential
 
 namespace Aliro::Interface::UserDevice::Trust {
