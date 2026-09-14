@@ -63,13 +63,10 @@ int main()
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 
 #ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
-
-	LOG_INF("Initializing gesture access");
-	int gestureAccessErr = DoorLock::GestureAccess::Init();
+	int gestureAccessErr = DoorLock::GestureAccess::Init([] {
+		Aliro::AccessManagerInstance().HandleGestureDetected();
+	});
 	VerifyOrDie(gestureAccessErr == 0, "Failed to initialize gesture access");
-	gestureAccessErr = DoorLock::GestureAccess::Start();
-	VerifyOrDie(gestureAccessErr == 0, "Failed to start gesture access");
-
 #endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
 
 	int err = StartMatter();

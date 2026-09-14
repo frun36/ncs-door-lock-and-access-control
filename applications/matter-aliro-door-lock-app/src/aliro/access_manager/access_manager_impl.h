@@ -368,6 +368,10 @@ private:
 	sys_slist_t mActiveSessions{};
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+	void _HandleGestureDetected();
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
+
 	ApplicationCallbacks mCallbacks{};
 
 	KpersistentManager *mKpersistentManager{ nullptr };

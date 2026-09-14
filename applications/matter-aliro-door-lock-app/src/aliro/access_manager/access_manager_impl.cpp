@@ -25,6 +25,10 @@
 #include "uwb_impl.h"
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+#include "gesture_access/gesture_access.h"
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
+
 #ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
 #include <disambiguator.h>
 #endif // CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
@@ -1004,14 +1008,19 @@ void AccessManagerImpl::SetOpenAllowed(SessionContext sessionContext, bool openA
 	bool hasAnyOpenAllowed{ false };
 	hasAnyOpenAllowed = openAllowed || (hadAnyOpenAllowed && IsOpenAllowed());
 
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+	if (hasAnyOpenAllowed != hadAnyOpenAllowed) {
+		DoorLock::GestureAccess::SetDetectionActive(hasAnyOpenAllowed);
+
+#ifndef CONFIG_DOOR_LOCK_ALIRO_LOCK_SIM_AUTO_RELOCK
+		if (!hasAnyOpenAllowed) {
+			LockAction(false, sessionCtx->mAccessCredentialPublicKey);
+		}
+#endif // CONFIG_DOOR_LOCK_ALIRO_LOCK_SIM_AUTO_RELOCK
+	}
+#else
 	// Handle state change and trigger appropriate actions if state changed
 	if (updateReaderState && (hasAnyOpenAllowed != hadAnyOpenAllowed)) {
-#ifdef CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
-		if (hadAnyOpenAllowed && hasAnyOpenAllowed) {
-			TerminateAliroSession(sessionContext);
-		}
-#endif // CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
-
 		if (hasAnyOpenAllowed) {
 			UnlockAction(false, sessionCtx->mAccessCredentialPublicKey);
 #ifdef CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
@@ -1023,6 +1032,8 @@ void AccessManagerImpl::SetOpenAllowed(SessionContext sessionContext, bool openA
 #endif // CONFIG_DOOR_LOCK_ALIRO_LOCK_SIM_AUTO_RELOCK
 		}
 	}
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
+
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 }
 
@@ -1303,5 +1314,41 @@ AliroError AccessManagerImpl::RemoveAccessCredentials(size_t credentialIssuerKey
 #endif // CONFIG_DOOR_LOCK_STORAGE_MAX_STORED_ACCESS_DOCUMENTS > 0
 
 #endif // CONFIG_DOOR_LOCK_STEP_UP_PHASE
+
+#ifdef CONFIG_DOOR_LOCK_GESTURE_ACCESS
+void AccessManagerImpl::_HandleGestureDetected()
+{
+	std::optional<CryptoTypes::PublicKey> publicKey;
+	std::optional<SessionContext> sessionContext;
+
+	{
+		MutexGuard lock{ sMutex };
+		RangingSessionContext *ctx{};
+		// Find any eligible session
+		SYS_SLIST_FOR_EACH_CONTAINER (&mActiveSessions, ctx, mNode) {
+			if (ctx->mOpenAllowed) {
+				publicKey = ctx->mAccessCredentialPublicKey;
+				sessionContext = ctx->mSessionContext;
+				break;
+			}
+		}
+	}
+
+	if (!publicKey.has_value()) {
+		LOG_WRN("Gesture confirmed, but no eligible UWB session");
+		DoorLock::GestureAccess::SetDetectionActive(false);
+		return;
+	}
+
+	LOG_INF("Gesture confirmed, unlocking door");
+	UnlockAction(false, publicKey.value());
+
+#ifdef CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
+	if (sessionContext) {
+		TerminateAliroSession(sessionContext);
+	}
+#endif // CONFIG_DOOR_LOCK_ACCESS_MANAGER_TERMINATE_SESSION_ON_ACCESS_GRANTED
+}
+#endif // CONFIG_DOOR_LOCK_GESTURE_ACCESS
 
 } // namespace Aliro
