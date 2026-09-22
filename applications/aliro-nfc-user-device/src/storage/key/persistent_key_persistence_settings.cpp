@@ -4,41 +4,33 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-#include "mailbox_persistence.h"
+#include "persistent_key_persistence.h"
 
 #include <zephyr/logging/log.h>
 #include <zephyr/settings/settings.h>
 
 #include <cstdio>
 
-LOG_MODULE_DECLARE(aliro_ud_mailbox, CONFIG_ALIRO_UD_MAILBOX_LOG_LEVEL);
+LOG_MODULE_DECLARE(aliro_ud_key, CONFIG_ALIRO_UD_KEY_LOG_LEVEL);
 
 /*
- * Real Zephyr settings-backed implementation of mailbox_persistence.h.
- * Same direct-key-query approach as
- * storage/credential/credential_persistence_settings.cpp (bypasses the
- * settings_handler registration mechanism): a small, fixed set of
- * well-known keys, one fixed-size POD blob per key, nothing outside this
- * application ever reads them.
+ * Real Zephyr settings-backed implementation, mirroring
+ * storage/credential/credential_persistence_settings.cpp: bypasses the
+ * settings_handler registration mechanism and queries the backend directly
+ * by key, since this is a small, fixed set of well-known records.
  */
-namespace AliroUd::Mailbox::Persistence {
+namespace AliroUd::PersistentKey::Persistence {
 namespace {
 
 int SlotKey(size_t slotIndex, char *buf, size_t bufLen)
 {
-	return snprintf(buf, bufLen, "aliro_ud/mbox/%zu", slotIndex);
+	return snprintf(buf, bufLen, "aliro_ud/pkey/%zu", slotIndex);
 }
 
 } // namespace
 
 AliroError Init()
 {
-	/*
-	 * settings_subsys_init() is idempotent (Zephyr settings tracks its
-	 * own initialization); storage/credential's Init() already calls it
-	 * during boot sequencing (src/main.cpp), but this module must not
-	 * assume initialization order relative to that call.
-	 */
 	const int rc = settings_subsys_init();
 
 	if (rc != 0) {
@@ -49,12 +41,12 @@ AliroError Init()
 	return ALIRO_NO_ERROR;
 }
 
-AliroError LoadSlot(size_t slotIndex, MailboxRecord &out, bool &outPresent)
+AliroError LoadRecord(size_t slotIndex, Record &out, bool &outPresent)
 {
 	char key[24];
 	SlotKey(slotIndex, key, sizeof(key));
 
-	MailboxRecord loaded{};
+	Record loaded{};
 	const ssize_t rc = settings_load_one(key, &loaded, sizeof(loaded));
 
 	if (rc == 0 || rc == -ENOENT) {
@@ -78,13 +70,12 @@ AliroError LoadSlot(size_t slotIndex, MailboxRecord &out, bool &outPresent)
 	return ALIRO_NO_ERROR;
 }
 
-AliroError SaveSlot(size_t slotIndex, const MailboxRecord &value)
+AliroError SaveRecord(size_t slotIndex, const Record &value)
 {
 	char key[24];
 	SlotKey(slotIndex, key, sizeof(key));
 
 	const int rc = settings_save_one(key, &value, sizeof(value));
-
 	if (rc != 0) {
 		LOG_ERR("settings_save_one(%s) failed: %d", key, rc);
 		return ALIRO_ERROR_INTERNAL;
@@ -93,13 +84,12 @@ AliroError SaveSlot(size_t slotIndex, const MailboxRecord &value)
 	return ALIRO_NO_ERROR;
 }
 
-AliroError EraseSlot(size_t slotIndex)
+AliroError EraseRecord(size_t slotIndex)
 {
 	char key[24];
 	SlotKey(slotIndex, key, sizeof(key));
 
 	const int rc = settings_delete(key);
-
 	if (rc != 0) {
 		LOG_ERR("settings_delete(%s) failed: %d", key, rc);
 		return ALIRO_ERROR_INTERNAL;
@@ -108,4 +98,4 @@ AliroError EraseSlot(size_t slotIndex)
 	return ALIRO_NO_ERROR;
 }
 
-} // namespace AliroUd::Mailbox::Persistence
+} // namespace AliroUd::PersistentKey::Persistence

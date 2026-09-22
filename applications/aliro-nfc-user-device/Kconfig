@@ -14,7 +14,9 @@ source "$(ZEPHYR_BASE)/subsys/logging/Kconfig.template.log_config"
 
 rsource "src/platform/Kconfig"
 rsource "src/storage/credential/Kconfig"
+rsource "src/storage/key/Kconfig"
 rsource "src/storage/mailbox/Kconfig"
+rsource "src/storage/document/Kconfig"
 
 rsource "Kconfig.defconfig"
 

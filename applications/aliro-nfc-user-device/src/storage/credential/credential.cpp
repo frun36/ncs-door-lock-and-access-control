@@ -91,7 +91,7 @@ AliroError GetMetadata(::Aliro::UserDevice::CredentialHandle handle,
 }
 
 AliroError GetSignedTimestamps(::Aliro::UserDevice::CredentialHandle handle,
-				::Aliro::UserDevice::CredentialSignedTimestamps &outTimestamps)
+			       ::Aliro::UserDevice::CredentialSignedTimestamps &outTimestamps)
 {
 	return AliroUd::Credential::Store::GetSignedTimestamps(handle, outTimestamps);
 }

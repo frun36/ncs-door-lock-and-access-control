@@ -65,12 +65,20 @@ AliroError Reset();
 /** @brief Gets non-secret metadata for a credential. */
 AliroError GetMetadata(::Aliro::UserDevice::CredentialHandle handle, ::Aliro::UserDevice::CredentialMetadata &outMetadata);
 
-/** @brief Gets the provisioned signed timestamps for a credential (ALIRO-UD-SYRS-P1-030). */
+/**
+ * @brief Gets the provisioned signed timestamps for a credential.
+ *
+ * A timestamp not provisioned comes back as `std::nullopt` in
+ * `outTimestamps`, never synthesized or zero-filled.
+ */
 AliroError GetSignedTimestamps(::Aliro::UserDevice::CredentialHandle handle,
-				::Aliro::UserDevice::CredentialSignedTimestamps &outTimestamps);
+			       ::Aliro::UserDevice::CredentialSignedTimestamps &outTimestamps);
 
 /** @brief Gets the full non-secret persisted record for a credential (for CLI inspection). */
 AliroError GetFullRecord(::Aliro::UserDevice::CredentialHandle handle, PersistedCredential &out);
+
+/** @brief Clears a credential's provisioned document of one type, if any, and persists the change. */
+AliroError DeleteDocument(::Aliro::UserDevice::CredentialHandle handle, ::Aliro::AccessDocumentTypes::DocumentType type);
 
 /** @brief Gets the number of reader_group_identifier bindings for a credential. */
 AliroError GetGroupBindingCount(::Aliro::UserDevice::CredentialHandle handle, size_t &outCount);
