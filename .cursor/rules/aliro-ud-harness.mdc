@@ -10,26 +10,28 @@ to other applications in this repo.
 
 ## Session start protocol
 
+`TARGET_AWP` is required only for an invocation that implements an
+Application Work Package. One-off build, flash, inspection, and debugging
+requests may omit it and must not be treated as AWP progress.
+
 Before doing anything else in a session that touches this app:
 
 1. Read `applications/aliro-nfc-user-device/docs/STATE.md` in full.
-2. Read the active AWP's section in `APP_PLAN.md` (the `TARGET_AWP` given in
-   the prompt).
-3. If `docs/evidence/AWP<n>.md` already exists for that AWP (a resumed,
-   not-yet-committed AWP), read it too.
-4. Restate in one or two sentences what you are doing and why it satisfies
-   `TARGET_AWP`, before making any edit. If it does not match `STATE.md`'s
-   "Exact next action", stop and ask instead of proceeding.
+2. For an AWP invocation, read the active AWP's section in `APP_PLAN.md` and
+   any existing `docs/evidence/AWP<n>.md` for that AWP.
+3. For an AWP invocation, restate in one or two sentences what you are doing
+   and why it satisfies `TARGET_AWP`, before making any edit. If it does not
+   match `STATE.md`'s "Exact next action", stop and ask instead of proceeding.
 
 ## Re-anchoring after a long gap or a context summary
 
 If you notice your own context has been condensed/summarized (long session,
 many tool calls since the last explicit restatement of the goal), or if more
 than roughly 20-30 tool calls have passed since you last did so: stop, re-read
-`docs/STATE.md` and the active AWP section of `APP_PLAN.md` again, and
-re-restate the current goal in one sentence before continuing. Do not rely on
-your own recollection of an old conversation turn for the goal — re-read the
-files.
+`docs/STATE.md` and, for an AWP invocation, the active AWP section of
+`APP_PLAN.md` again. Re-restate the current goal in one sentence before
+continuing. Do not rely on your own recollection of an old conversation turn
+for the goal — re-read the files.
 
 ## `docs/STATE.md` discipline
 
@@ -44,8 +46,8 @@ files.
 - Never put raw command output, byte counts, or full test-run transcripts in
   `STATE.md`. Those belong in the active AWP's `docs/evidence/AWP<n>.md`.
 - The last action before ending any invocation on this app is to rewrite
-  `STATE.md` to match reality: active `TARGET_AWP`, blockers, exact next
-  action, and up to 5 short carry-forward conclusions.
+  `STATE.md` to match reality: active/next `TARGET_AWP` when applicable,
+  blockers, exact next action, and up to 5 short carry-forward conclusions.
 
 ## `docs/STATE.md` commit handling
 

@@ -4,10 +4,13 @@ Build the Phase 1 Aliro NFC User Device application for the nRF54LM20B DK,
 replacing the proof of concept under
 `applications/aliro-nfc-user-device`.
 
-Every Agent invocation MUST be given `TARGET_AWP=AWPx`, MUST execute exactly
-that Application Work Package, and MUST then stop. If `TARGET_AWP` is absent,
-ambiguous, already complete, or has an incomplete prerequisite, ask the user
-instead of choosing a package or continuing into another one.
+Every invocation that implements an Application Work Package MUST be given
+`TARGET_AWP=AWPx`, MUST execute exactly that Application Work Package, and
+MUST then stop. One-off build, flash, inspection, and debugging requests may
+omit `TARGET_AWP`; they must not be treated as AWP progress. If `TARGET_AWP`
+is present but absent, ambiguous, already complete, or has an incomplete
+prerequisite, ask the user instead of choosing a package or continuing into
+another one.
 
 Authoritative inputs, in precedence order:
 
@@ -55,8 +58,9 @@ features.
 ### Invocation, repository, and commit contract
 
 - Modify only this repository. Never modify the sibling `ncs-aliro` checkout.
-- Preserve unrelated staged, unstaged, and untracked work. Stage only files
-  produced for `TARGET_AWP`.
+- Preserve unrelated staged, unstaged, and untracked work. For AWP work, stage
+  only files produced for `TARGET_AWP`; one-off maintenance work must not
+  stage or commit unrelated files.
 - The agent shall use the currently explicitly checked out revision of `ncs-aliro`. 
   The Agent MUST record the exact tested  revision and MUST NOT silently run 
   `west update` or change stack revisions.
@@ -102,8 +106,6 @@ stack revision changes, rebuild and rerun the integration suite.
   a required DK demonstration passed.
 - Use fakes or in-memory backends owned by this application; do not depend on
   stack test-only code.
-- Remain powered while idle. System OFF and automatic power-down are not part
-  of Phase 1 and MUST NOT be implemented by these AWPs.
 - Query `aliro-spec` before deciding any ambiguous protocol field, timing,
   cryptographic input, or mailbox-rights semantic. Record the normative
   citation beside the resulting test or design note.
@@ -526,7 +528,6 @@ After any stack update:
 - Bluetooth LE, UWB, and combined BLE/UWB flows.
 - Reader/poll mode, access decisions, and lock actuation.
 - Production provisioning authorization, enclosure, and mobile-device work.
-- System OFF, automatic power-down, and idle-current optimization.
 - Extended-length APDUs, User Device Descriptor, Reader notification,
   bound-application notification, and `update_doc`.
 - Credential Issuer backend protocol; the development CLI provides local
