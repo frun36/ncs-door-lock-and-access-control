@@ -38,7 +38,7 @@ template <typename T> AliroError LoadRecord(const char *key, T &out, bool &outPr
 	T loaded{};
 	const ssize_t rc = settings_load_one(key, &loaded, sizeof(loaded));
 
-	if (rc == -ENOENT) {
+	if (rc == 0 || rc == -ENOENT) {
 		outPresent = false;
 		return ALIRO_NO_ERROR;
 	}

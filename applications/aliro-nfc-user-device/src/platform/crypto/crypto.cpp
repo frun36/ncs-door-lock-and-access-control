@@ -5,6 +5,7 @@
  */
 
 #include "certificate.h"
+#include "crypto_internal.h"
 
 #include <aliro/user_device/interface.h>
 
@@ -43,7 +44,7 @@ using namespace Aliro::CryptoTypes;
 namespace {
 
 constexpr KeyId kImportedKeyMarker{ 0x80000000u };
-constexpr size_t kMaxImportedKeys{ 4 };
+constexpr size_t kMaxImportedKeys{ 5 };
 
 struct ImportedKeySlot {
 	psa_key_id_t deriveKeyId{};
@@ -110,7 +111,15 @@ psa_key_attributes_t GetImportedDeriveKeyAttributes(size_t keyMaterialLength)
 	psa_set_key_type(&attributes, PSA_KEY_TYPE_DERIVE);
 	psa_set_key_algorithm(&attributes, PSA_ALG_HKDF(PSA_ALG_SHA_256));
 	psa_set_key_bits(&attributes, PSA_BYTES_TO_BITS(keyMaterialLength));
-	psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_DERIVE);
+	/*
+	 * PSA_KEY_USAGE_COPY: storage/key/persistent_key_backend_psa.cpp needs
+	 * to psa_copy_key() this key's material into a persistent slot it owns
+	 * (PersistentKey::Replace()), and later copy back out of that
+	 * persistent slot into a fresh volatile handle (PersistentKey::Lookup()).
+	 * Kpersistent is only ever used via HKDF derivation (never AEAD), so
+	 * only this derive-capable attribute set needs COPY.
+	 */
+	psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_DERIVE | PSA_KEY_USAGE_COPY);
 
 	return attributes;
 }
@@ -485,3 +494,34 @@ AliroError ImportKey(const uint8_t *keyMaterial, size_t keyMaterialLength, KeyId
 }
 
 } // namespace Aliro::Interface::UserDevice::Crypto
+
+namespace AliroUd::Crypto::Internal {
+
+psa_key_id_t ResolveDeriveKeyIdForPersistence(::Aliro::CryptoTypes::KeyId keyId)
+{
+	return ResolveDeriveKeyId(keyId);
+}
+
+AliroError RegisterDeriveOnlyKey(psa_key_id_t derivePsaKeyId, ::Aliro::CryptoTypes::KeyId &outMarkerKeyId)
+{
+	outMarkerKeyId = 0;
+
+	size_t slotIndex{ kMaxImportedKeys };
+	for (size_t i = 0; i < kMaxImportedKeys; ++i) {
+		if (gImportedKeySlots[i].deriveKeyId == 0 && gImportedKeySlots[i].aeadKeyId == 0) {
+			slotIndex = i;
+			break;
+		}
+	}
+	if (slotIndex >= kMaxImportedKeys) {
+		LOG_ERR("No free ImportKey slot to register derive-only key");
+		return ALIRO_ERROR_INTERNAL;
+	}
+
+	gImportedKeySlots[slotIndex].deriveKeyId = derivePsaKeyId;
+	gImportedKeySlots[slotIndex].aeadKeyId = 0;
+	outMarkerKeyId = kImportedKeyMarker | static_cast<::Aliro::CryptoTypes::KeyId>(slotIndex);
+	return ALIRO_NO_ERROR;
+}
+
+} // namespace AliroUd::Crypto::Internal

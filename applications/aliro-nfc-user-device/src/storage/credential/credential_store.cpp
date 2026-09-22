@@ -9,6 +9,8 @@
 #include "credential_persistence.h"
 #include "key_backend.h"
 
+#include <storage/key/persistent_key_store.h>
+
 #include <aliro/utils.h>
 
 #include <zephyr/kernel.h>
@@ -253,6 +255,7 @@ AliroError DeleteSlotInternal(size_t slotIndex)
 
 	KeyBackend::DestroyKey(oldKeyId);
 	PurgePreferredEntriesForHandle(handle);
+	AliroUd::PersistentKey::Store::DeleteAllForCredential(handle);
 
 	return Persistence::EraseJournal();
 }
@@ -559,6 +562,46 @@ AliroError GetFullRecord(CredentialHandle handle, PersistedCredential &out)
 
 	out = sSlots[slotIndex];
 	return ALIRO_NO_ERROR;
+}
+
+AliroError GetSignedTimestamps(CredentialHandle handle, CredentialSignedTimestamps &outTimestamps)
+{
+	outTimestamps = CredentialSignedTimestamps{};
+	Lock lock;
+
+	size_t slotIndex{};
+	if (!HandleToSlotIndex(handle, slotIndex) || !sSlots[slotIndex].mValid) {
+		return ALIRO_INVALID_ARGUMENT;
+	}
+
+	const auto &record = sSlots[slotIndex];
+	if (record.mHasCredentialSignedTimestamp) {
+		outTimestamps.mCredentialSignedTimestamp = record.mCredentialSignedTimestamp;
+	}
+	if (record.mHasRevocationSignedTimestamp) {
+		outTimestamps.mRevocationSignedTimestamp = record.mRevocationSignedTimestamp;
+	}
+
+	return ALIRO_NO_ERROR;
+}
+
+AliroError DeleteDocument(CredentialHandle handle, ::Aliro::AccessDocumentTypes::DocumentType type)
+{
+	Lock lock;
+
+	size_t slotIndex{};
+	if (!HandleToSlotIndex(handle, slotIndex) || !sSlots[slotIndex].mValid) {
+		return ALIRO_INVALID_ARGUMENT;
+	}
+
+	auto &record = sSlots[slotIndex];
+	if (type == ::Aliro::AccessDocumentTypes::DocumentType::Access) {
+		record.mAccessDocument = OptionalDocument{};
+	} else {
+		record.mRevocationDocument = OptionalDocument{};
+	}
+
+	return Persistence::SaveSlot(slotIndex, record);
 }
 
 AliroError GetGroupBindingCount(CredentialHandle handle, size_t &outCount)

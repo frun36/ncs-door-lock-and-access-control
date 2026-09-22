@@ -1,0 +1,59 @@
+#
+# Copyright (c) 2026 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+menu "Persistent key (Kpersistent) storage"
+
+config ALIRO_UD_KEY_PSA_WANT
+	bool
+	default y
+	# persistent_key_backend_psa.cpp / fake: psa_copy_key() a Kpersistent
+	# derive key into/out of persistent storage.
+	select PSA_WANT_KEY_TYPE_DERIVE
+	select PSA_WANT_ALG_HKDF
+	select PSA_WANT_ALG_SHA_256
+	help
+	  PSA Crypto algorithm/key-type requirements for Kpersistent storage,
+	  shared by the real and host-test-fake PersistentKey backends.
+
+config ALIRO_UD_MAX_PERSISTENT_KEYS_PER_CREDENTIAL
+	int "Maximum Kpersistent records per Access Credential"
+	default 16
+	range 1 32
+	help
+	  Upper bound on the number of distinct reader_group_sub_identifier
+	  Kpersistent records one Access Credential may have at once
+	  (Aliro 1.0 Specification, section 6.2, page 28). Mirrors
+	  ALIRO_UD_MAX_BINDINGS_PER_CREDENTIAL's default.
+
+config ALIRO_UD_PERSISTENT_KEY_ID_BASE
+	hex "Base PSA persistent key ID for Kpersistent records"
+	default 0x00001000
+	help
+	  Each record slot deterministically owns two adjacent persistent PSA
+	  key IDs starting at this base: one for its committed key and one
+	  "staged" companion ID used only while a replacement key is being
+	  durably owned during Replace() (mirrors
+	  ALIRO_UD_CREDENTIAL_KEY_ID_BASE's ping-pong scheme). Slot i uses
+	  (base + 2*i) committed / (base + 2*i + 1) staged. Must not overlap
+	  ALIRO_UD_CREDENTIAL_KEY_ID_BASE or any other persistent PSA key ID
+	  used by this application.
+
+config ALIRO_UD_PERSISTENT_KEY_BACKEND_REAL
+	bool
+	default y if !ZTEST
+	help
+	  Selects the real PSA-backed persistent key backend. Disabled
+	  automatically under ZTEST, where host tests link an
+	  application-owned in-memory fake instead (native_sim has no
+	  hardware-backed persistent storage).
+
+module = ALIRO_UD_KEY
+module-str = ALIRO_UD_KEY
+module-dep = LOG
+module-help = Enables Aliro NFC User Device persistent-key storage log messages.
+source "$(ZEPHYR_BASE)/subsys/logging/Kconfig.template.log_config"
+
+endmenu # Persistent key (Kpersistent) storage

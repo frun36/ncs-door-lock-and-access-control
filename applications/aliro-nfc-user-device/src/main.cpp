@@ -12,6 +12,7 @@
 #include "platform/nfc/nfc_transport.h"
 #include "platform/os/app_status.h"
 #include "storage/credential/credential_store.h"
+#include "storage/key/persistent_key_store.h"
 #include "storage/mailbox/mailbox_store.h"
 
 LOG_MODULE_REGISTER(aliro_nfc_ud, LOG_LEVEL_INF);
@@ -32,6 +33,17 @@ int main(void)
 	const AliroError credentialError = AliroUd::Credential::Store::Init();
 	if (credentialError != ALIRO_NO_ERROR) {
 		LOG_ERR("Credential store initialization failed: %d", credentialError.ToInt());
+		AliroUd::AppStatus::SetInitState(AliroUd::AppStatus::InitState::StackInitFailed);
+		return 0;
+	}
+
+	/*
+	 * Kpersistent records are keyed by credential handle, so this must
+	 * initialize after the credential store above.
+	 */
+	const AliroError persistentKeyError = AliroUd::PersistentKey::Store::Init();
+	if (persistentKeyError != ALIRO_NO_ERROR) {
+		LOG_ERR("Persistent key store initialization failed: %d", persistentKeyError.ToInt());
 		AliroUd::AppStatus::SetInitState(AliroUd::AppStatus::InitState::StackInitFailed);
 		return 0;
 	}
