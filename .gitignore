@@ -28,3 +28,5 @@ _pycache__/
 
 /doc/_build*
 twister-out*
+
+.codegraph
