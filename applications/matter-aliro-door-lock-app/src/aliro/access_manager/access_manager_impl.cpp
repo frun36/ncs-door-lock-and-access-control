@@ -29,10 +29,10 @@
 #include <disambiguator.h>
 #endif // CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
 
-#ifdef CONFIG_DOOR_LOCK_DISPLAY
+#if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
 #include "aliro/init.h"
 #include "display/display.h"
-#endif // CONFIG_DOOR_LOCK_DISPLAY
+#endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
 
 #include <crypto_utils/crypto_utils.h>
 #include <doorlock/utils/mutex_guard.h>
@@ -618,9 +618,10 @@ void AccessManagerImpl::_HandleRangingSessionStateChanged(SessionContext session
 
 void AccessManagerImpl::_HandleRangingSessionData(SessionContext sessionContext, const UwbRangingData &uwbData)
 {
-	LOG_DBG("Handling ranging session data - length: %u for session: %p", uwbData.mLength, sessionContext.GetRaw());
-
 #ifdef CONFIG_DOOR_LOCK_BLE_UWB
+	LOG_DBG("Handling ranging session data - length: %u for session: %p", uwbData.mLength,
+		sessionContext.GetRaw());
+
 	const auto openAllowed = EvaluateUwbOpenAllowed(uwbData, sessionContext);
 
 #ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
@@ -643,6 +644,9 @@ void AccessManagerImpl::_HandleRangingSessionData(SessionContext sessionContext,
 	PostDisplayDisambiguationSide();
 	PostDisplayClosestRangingDistance();
 #endif // CONFIG_DOOR_LOCK_DISPLAY
+#else
+	ARG_UNUSED(sessionContext);
+	ARG_UNUSED(uwbData);
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 }
 
@@ -867,7 +871,7 @@ bool AccessManagerImpl::DisambiguationAllowsOpen() const
 }
 #endif // CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
 
-#ifdef CONFIG_DOOR_LOCK_DISPLAY
+#if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
 void AccessManagerImpl::PostDisplayClosestRangingDistance()
 {
 	RangingSessionContext *closestSession{ nullptr };
@@ -958,7 +962,7 @@ void AccessManagerImpl::PostDisplayDisambiguationSide()
 		display_post_disambiguation_side(isFront);
 	}
 }
-#endif // CONFIG_DOOR_LOCK_DISPLAY
+#endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
 
 std::optional<uint16_t> AccessManagerImpl::ExtractDistanceFromUwbData(const UwbRangingData &uwbData) const
 {

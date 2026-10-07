@@ -18,7 +18,9 @@
 
 LOG_MODULE_REGISTER(display, CONFIG_DOOR_LOCK_APP_LOG_LEVEL);
 
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 static atomic_t nfc_mode = ATOMIC_INIT(false);
+#endif
 
 #define MIPI_DBI_NODE DT_NODELABEL(mipi_dbi)
 
@@ -41,20 +43,24 @@ K_THREAD_STACK_DEFINE(display_thread_stack, CONFIG_DISPLAY_THREAD_STACK_SIZE);
 
 struct k_thread display_thread;
 
+static atomic_t lock_shown_open = ATOMIC_INIT(false);
+
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 static dist_data_t dist_data;
+static bool distance_available;
+#if defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 static atomic_t disambiguation_is_front = ATOMIC_INIT(false);
 static atomic_t disambiguation_visible = ATOMIC_INIT(false);
-static atomic_t lock_shown_open = ATOMIC_INIT(false);
+static void display_update_disambiguation_side(display_ctx_t *ctx);
+static void display_apply_clear_disambiguation_side(display_ctx_t *ctx);
+#endif
+#endif
 
 static void display_post_lock_event(bool isOpen)
 {
 	k_event_post(&display_event, BIT(isOpen ? DISPLAY_UNLOCK_ACTION : DISPLAY_LOCK_ACTION));
 }
 
-static bool distance_available;
-
-static void display_update_disambiguation_side(display_ctx_t *ctx);
-static void display_apply_clear_disambiguation_side(display_ctx_t *ctx);
 static void display_realign_upper_labels(display_ctx_t *ctx);
 static void display_realign_bottom_labels(display_ctx_t *ctx);
 
@@ -160,7 +166,7 @@ int display_init(display_ctx_t *ctx)
 	lv_obj_set_width(ctx->status_label, lv_pct(100));
 	lv_obj_align_to(ctx->status_label, ctx->nordic_logo, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
 
-#ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
+#if defined(CONFIG_DOOR_LOCK_BLE_UWB) && defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 	LV_IMAGE_DECLARE(user_not_detected);
 	ctx->disambiguation_icon = lv_image_create(lv_screen_active());
 	if (ctx->disambiguation_icon == NULL) {
@@ -189,6 +195,7 @@ int display_init(display_ctx_t *ctx)
 	lv_obj_align(ctx->howto_close_label, LV_ALIGN_BOTTOM_MID, 0, -20);
 	lv_obj_move_foreground(ctx->howto_close_label);
 
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	ctx->op_mode_label = lv_label_create(lv_screen_active());
 	if (ctx->op_mode_label == NULL) {
 		LOG_ERR("Failed to create op_mode label");
@@ -226,6 +233,7 @@ int display_init(display_ctx_t *ctx)
 	lv_obj_align(ctx->dist_label, LV_ALIGN_BOTTOM_MID, 0, -52);
 	(void)snprintf(ctx->count_str, sizeof(ctx->count_str), "Current distance:\nN/A");
 	lv_label_set_text(ctx->dist_label, ctx->count_str);
+#endif
 
 	lv_task_handler();
 
@@ -286,7 +294,8 @@ void howto_close_animation(display_ctx_t *ctx, bool show)
 	lv_obj_move_foreground(ctx->howto_close_label);
 }
 
-void op_mode_animation(display_ctx_t *ctx, bool isNfc)
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
+static void op_mode_animation(display_ctx_t *ctx, bool isNfc)
 {
 	if (isNfc) {
 		lv_label_set_text(ctx->op_mode_label, "#0000ff NFC mode"
@@ -301,44 +310,51 @@ void op_mode_animation(display_ctx_t *ctx, bool isNfc)
 	display_realign_upper_labels(ctx);
 	lv_obj_move_foreground(ctx->op_mode_label);
 	lv_obj_move_foreground(ctx->op_mode_switch_label);
+#if defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 	display_update_disambiguation_side(ctx);
+#endif
 }
 
 void disconnected_animation(display_ctx_t *ctx)
 {
+#if defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 	display_apply_clear_disambiguation_side(ctx);
+#endif
 	(void)snprintf(ctx->count_str, sizeof(ctx->count_str), "Current distance:\n%s", LV_SYMBOL_WARNING);
 	lv_label_set_text(ctx->dist_label, ctx->count_str);
 }
+#else
+void disconnected_animation(display_ctx_t *ctx)
+{
+	(void)ctx;
+}
+#endif
 
 static void display_realign_upper_labels(display_ctx_t *ctx)
 {
-	constexpr int32_t kSmallGap = 4;
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	constexpr int32_t kModeGap = 8;
-
-	lv_obj_t *anchor;
-#ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
+	lv_obj_t *anchor = ctx->status_label;
+#if defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
+	constexpr int32_t kSmallGap = 4;
 	if (!atomic_get(&nfc_mode) && atomic_get(&disambiguation_visible)) {
 		lv_obj_align_to(ctx->disambiguation_icon, ctx->status_label, LV_ALIGN_OUT_BOTTOM_MID, 0, kSmallGap);
 		anchor = ctx->disambiguation_icon;
-	} else {
-		anchor = ctx->status_label;
 	}
-#else
-	anchor = ctx->status_label;
 #endif
 
 	lv_obj_align_to(ctx->op_mode_label, anchor, LV_ALIGN_OUT_BOTTOM_MID, 0, kModeGap);
+#endif
 
 	display_realign_bottom_labels(ctx);
 }
 
 static void display_realign_bottom_labels(display_ctx_t *ctx)
 {
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	constexpr int32_t kBottomMargin = 2;
 	constexpr int32_t kBtnGap = 4;
 	constexpr int32_t kDistGap = 8;
-
 	lv_obj_align(ctx->op_mode_switch_label, LV_ALIGN_BOTTOM_MID, 0, -kBottomMargin);
 
 	lv_obj_align_to(ctx->howto_close_label, ctx->op_mode_switch_label, LV_ALIGN_OUT_TOP_MID, 0, -kBtnGap);
@@ -352,11 +368,14 @@ static void display_realign_bottom_labels(display_ctx_t *ctx)
 
 	lv_obj_move_foreground(ctx->howto_close_label);
 	lv_obj_move_foreground(ctx->op_mode_switch_label);
+#else
+	lv_obj_align(ctx->howto_close_label, LV_ALIGN_BOTTOM_MID, 0, -20);
+#endif
 }
 
+#if defined(CONFIG_DOOR_LOCK_BLE_UWB) && defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 static void display_update_disambiguation_side(display_ctx_t *ctx)
 {
-#ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
 	LV_IMAGE_DECLARE(user_detected);
 	LV_IMAGE_DECLARE(user_not_detected);
 
@@ -381,21 +400,20 @@ static void display_update_disambiguation_side(display_ctx_t *ctx)
 	}
 
 	display_realign_upper_labels(ctx);
-#endif
 }
 
 static void display_apply_clear_disambiguation_side(display_ctx_t *ctx)
 {
-#ifdef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
 	atomic_set(&disambiguation_visible, false);
 	lv_obj_add_flag(ctx->disambiguation_icon, LV_OBJ_FLAG_HIDDEN);
 	lv_obj_remove_flag(ctx->dist_label, LV_OBJ_FLAG_HIDDEN);
 	display_realign_upper_labels(ctx);
-#endif
 }
+#endif
 
 int display_update(display_ctx_t *ctx, dist_data_t val)
 {
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	int ret = 0;
 
 	if (atomic_get(&nfc_mode)) {
@@ -421,6 +439,11 @@ int display_update(display_ctx_t *ctx, dist_data_t val)
 	lv_label_set_text(ctx->dist_label, ctx->count_str);
 
 	return 0;
+#else
+	(void)ctx;
+	(void)val;
+	return 0;
+#endif
 }
 
 void display_thread_main(void *ctx, void *, void *)
@@ -447,7 +470,9 @@ void display_thread_main(void *ctx, void *, void *)
 			LOG_DBG("Received display event %08x", event);
 			if (event & BIT(DISPLAY_UPDATE_VALUES)) {
 				LOG_DBG("Display received update value event");
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 				display_update(&display, dist_data);
+#endif
 				k_event_clear(&display_event, BIT(DISPLAY_UPDATE_VALUES));
 			}
 			if (event & BIT(DISPLAY_UNLOCK_ACTION)) {
@@ -466,23 +491,29 @@ void display_thread_main(void *ctx, void *, void *)
 			}
 			if (event & BIT(DISPLAY_DISCONNECTED_ACTION)) {
 				LOG_DBG("Display received disconnected animation event");
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 				distance_available = false;
 				if (atomic_get(&nfc_mode)) {
 					display_update(&display, dist_data);
 				} else {
 					disconnected_animation(&display);
 				}
+#endif
 				k_event_clear(&display_event, BIT(DISPLAY_DISCONNECTED_ACTION));
 			}
 			if (event & BIT(DISPLAY_OP_MODE_CHANGE)) {
 				LOG_DBG("Display received op mode change event");
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 				op_mode_animation(&display, atomic_get(&nfc_mode));
 				display_update(&display, dist_data);
+#endif
 				k_event_clear(&display_event, BIT(DISPLAY_OP_MODE_CHANGE));
 			}
 			if (event & BIT(DISPLAY_UPDATE_DISAMBIGUATION)) {
 				LOG_DBG("Display received disambiguation update event");
+#if defined(CONFIG_DOOR_LOCK_BLE_UWB) && defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 				display_update_disambiguation_side(&display);
+#endif
 				k_event_clear(&display_event, BIT(DISPLAY_UPDATE_DISAMBIGUATION));
 			}
 		}
@@ -499,25 +530,33 @@ void display_post_event(enum display_events event)
 
 void display_post_distance_update(dist_data_t val)
 {
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	constexpr display_events event = DISPLAY_UPDATE_VALUES;
 	dist_data = val;
 	distance_available = true;
 
 	LOG_DBG("Posting display event %d", event);
 	k_event_post(&display_event, BIT(event));
+#else
+	(void)val;
+#endif
 }
 
 void display_post_op_mode_change(bool nfcEnabled)
 {
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	constexpr display_events event = DISPLAY_OP_MODE_CHANGE;
 	LOG_DBG("Posting display event %d", event);
 	atomic_set(&nfc_mode, nfcEnabled);
 	k_event_post(&display_event, BIT(event));
+#else
+	(void)nfcEnabled;
+#endif
 }
 
 void display_post_disambiguation_side(bool isFront)
 {
-#ifndef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
+#if !defined(CONFIG_DOOR_LOCK_BLE_UWB) || !defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 	return;
 #else
 	bool changed = (atomic_set(&disambiguation_is_front, isFront) != (atomic_val_t)isFront) ||
@@ -531,7 +570,7 @@ void display_post_disambiguation_side(bool isFront)
 
 void display_refresh_disambiguation_side(bool isFront)
 {
-#ifndef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
+#if !defined(CONFIG_DOOR_LOCK_BLE_UWB) || !defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 	return;
 #else
 	atomic_set(&disambiguation_is_front, isFront);
@@ -542,7 +581,7 @@ void display_refresh_disambiguation_side(bool isFront)
 
 void display_clear_disambiguation_side()
 {
-#ifndef CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION
+#if !defined(CONFIG_DOOR_LOCK_BLE_UWB) || !defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 	return;
 #else
 	atomic_set(&disambiguation_visible, false);
