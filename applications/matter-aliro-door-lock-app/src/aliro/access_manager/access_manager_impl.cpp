@@ -28,11 +28,10 @@
 #include "uwb_impl.h"
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 
-
-#ifdef CONFIG_DOOR_LOCK_DISPLAY
+#if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
 #include "aliro/init.h"
 #include "display/display.h"
-#endif // CONFIG_DOOR_LOCK_DISPLAY
+#endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
 
 #include <crypto_utils/crypto_utils.h>
 #include <doorlock/utils/mutex_guard.h>
@@ -684,9 +683,9 @@ void AccessManagerImpl::_HandleRangingSessionStateChanged(SessionContext session
 
 void AccessManagerImpl::_HandleRangingSessionData(SessionContext sessionContext, const UwbRangingData &uwbData)
 {
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	LOG_DBG("Handling ranging session data - length: %u for session: %p", uwbData.mLength, sessionContext.GetRaw());
 
-#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	const auto openAllowed = EvaluateUwbOpenAllowed(uwbData, sessionContext);
 
 	LOG_INF("session %p | %s", sessionContext.GetRaw(), openAllowed ? "OPEN ALLOWED" : "OPEN NOT ALLOWED");
@@ -695,6 +694,9 @@ void AccessManagerImpl::_HandleRangingSessionData(SessionContext sessionContext,
 #ifdef CONFIG_DOOR_LOCK_DISPLAY
 	PostDisplayClosestRangingDistance();
 #endif // CONFIG_DOOR_LOCK_DISPLAY
+#else
+	ARG_UNUSED(sessionContext);
+	ARG_UNUSED(uwbData);
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 }
 
@@ -892,7 +894,7 @@ bool AccessManagerImpl::EvaluateUwbOpenAllowed(const UwbRangingData &uwbData, Se
 	return true;
 }
 
-#ifdef CONFIG_DOOR_LOCK_DISPLAY
+#if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
 void AccessManagerImpl::PostDisplayClosestRangingDistance()
 {
 	RangingSessionContext *closestSession{ nullptr };
@@ -925,7 +927,7 @@ void AccessManagerImpl::PostDisplayClosestRangingDistance()
 	display_post_distance_update({ static_cast<int32_t>(closestDistanceCm), static_cast<int32_t>(threshold) });
 }
 
-#endif // CONFIG_DOOR_LOCK_DISPLAY
+#endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
 
 std::optional<uint16_t> AccessManagerImpl::ExtractDistanceFromUwbData(const UwbRangingData &uwbData) const
 {

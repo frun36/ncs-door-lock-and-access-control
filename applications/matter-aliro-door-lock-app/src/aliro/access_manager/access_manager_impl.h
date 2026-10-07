@@ -31,10 +31,10 @@ class AccessManagerImpl final : public AccessManager {
 public:
 	void SetKpersistentManager(KpersistentManager *kpersistentManager) { mKpersistentManager = kpersistentManager; }
 
-#ifdef CONFIG_DOOR_LOCK_DISPLAY
+#if defined(CONFIG_DOOR_LOCK_DISPLAY) && defined(CONFIG_DOOR_LOCK_BLE_UWB)
 	/** Posts the distance of the nearest FRONT-classified session to the display. */
 	void PostDisplayClosestRangingDistance();
-#endif // CONFIG_DOOR_LOCK_DISPLAY
+#endif // CONFIG_DOOR_LOCK_DISPLAY && CONFIG_DOOR_LOCK_BLE_UWB
 
 private:
 	friend class AccessManager;
