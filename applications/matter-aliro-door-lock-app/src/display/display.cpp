@@ -5,6 +5,7 @@
  */
 
 #include "display.h"
+#include "misc/lv_area.h"
 #include "zephyr/sys/atomic_types.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,6 +55,17 @@ static atomic_t disambiguation_visible = ATOMIC_INIT(false);
 static void display_update_disambiguation_side(display_ctx_t *ctx);
 static void display_apply_clear_disambiguation_side(display_ctx_t *ctx);
 #endif
+#else
+
+LV_IMAGE_DECLARE(padlock_locked);
+LV_IMAGE_DECLARE(padlock_unlocked);
+
+static void set_lock_icon(display_ctx_t *ctx, bool unlocked)
+{
+	lv_image_set_src(ctx->lock_icon, unlocked ? &padlock_unlocked : &padlock_locked);
+	lv_obj_set_style_image_recolor(ctx->lock_icon, lv_color_hex(unlocked ? 0x32ae00 : 0xc90000), 0);
+}
+
 #endif
 
 static void display_post_lock_event(bool isOpen)
@@ -61,8 +73,10 @@ static void display_post_lock_event(bool isOpen)
 	k_event_post(&display_event, BIT(isOpen ? DISPLAY_UNLOCK_ACTION : DISPLAY_LOCK_ACTION));
 }
 
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 static void display_realign_upper_labels(display_ctx_t *ctx);
 static void display_realign_bottom_labels(display_ctx_t *ctx);
+#endif
 
 static void update_orientation(const struct device *dev, enum display_orientation orientation)
 {
@@ -153,6 +167,7 @@ int display_init(display_ctx_t *ctx)
 	lv_obj_align(ctx->nordic_logo, LV_ALIGN_TOP_MID, 0, 10);
 	lv_obj_move_foreground(ctx->nordic_logo);
 
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	ctx->status_label = lv_label_create(lv_screen_active());
 	if (ctx->status_label == NULL) {
 		LOG_ERR("Failed to create status label");
@@ -165,6 +180,17 @@ int display_init(display_ctx_t *ctx)
 	lv_obj_set_style_pad_all(ctx->status_label, 0, 0);
 	lv_obj_set_width(ctx->status_label, lv_pct(100));
 	lv_obj_align_to(ctx->status_label, ctx->nordic_logo, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
+#else
+	ctx->lock_icon = lv_image_create(lv_screen_active());
+	if (ctx->lock_icon == NULL) {
+		LOG_ERR("Failed to create lock icon");
+		return -ENOMEM;
+	}
+	lv_obj_set_style_image_recolor_opa(ctx->lock_icon, LV_OPA_COVER, 0);
+	set_lock_icon(ctx, false);
+	lv_obj_align(ctx->nordic_logo, LV_ALIGN_TOP_MID, 0, 20);
+	lv_obj_align_to(ctx->lock_icon, ctx->nordic_logo, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+#endif
 
 #if defined(CONFIG_DOOR_LOCK_BLE_UWB) && defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 	LV_IMAGE_DECLARE(user_not_detected);
@@ -233,12 +259,22 @@ int display_init(display_ctx_t *ctx)
 	lv_obj_align(ctx->dist_label, LV_ALIGN_BOTTOM_MID, 0, -52);
 	(void)snprintf(ctx->count_str, sizeof(ctx->count_str), "Current distance:\nN/A");
 	lv_label_set_text(ctx->dist_label, ctx->count_str);
-#endif
-
-	lv_task_handler();
 
 	lv_label_set_text(ctx->status_label, "#ff0000 CLOSED" LV_SYMBOL_CLOSE "#");
 	display_realign_bottom_labels(ctx);
+#else
+	LV_IMAGE_DECLARE(aliro_logo);
+	ctx->aliro_logo = lv_image_create(lv_screen_active());
+	if (ctx->aliro_logo == NULL) {
+		LOG_ERR("Failed to create Aliro logo");
+		return -ENOMEM;
+	}
+	lv_image_set_src(ctx->aliro_logo, &aliro_logo);
+	lv_obj_align(ctx->aliro_logo, LV_ALIGN_BOTTOM_MID, 0, -30);
+	lv_obj_align(ctx->howto_close_label, LV_ALIGN_BOTTOM_MID, 0, -5);
+	lv_obj_move_foreground(ctx->aliro_logo);
+#endif
+
 	lv_task_handler();
 
 	int ret = display_blanking_off(ctx->dev);
@@ -255,6 +291,7 @@ int display_init(display_ctx_t *ctx)
 	return 0;
 }
 
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 static void animate_status_label(display_ctx_t *ctx)
 {
 	static lv_anim_t animation;
@@ -266,19 +303,28 @@ static void animate_status_label(display_ctx_t *ctx)
 	lv_anim_set_path_cb(&animation, lv_anim_path_bounce);
 	lv_anim_start(&animation);
 }
+#endif
 
 void open_animation(display_ctx_t *ctx)
 {
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	lv_label_set_text(ctx->status_label, "#00ff00 OPEN" LV_SYMBOL_OK "#");
 	animate_status_label(ctx);
 	display_realign_upper_labels(ctx);
+#else
+	set_lock_icon(ctx, true);
+#endif
 }
 
 void close_animation(display_ctx_t *ctx)
 {
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	animate_status_label(ctx);
 	lv_label_set_text(ctx->status_label, "#ff0000 CLOSED" LV_SYMBOL_CLOSE "#");
 	display_realign_upper_labels(ctx);
+#else
+	set_lock_icon(ctx, false);
+#endif
 }
 
 void howto_close_animation(display_ctx_t *ctx, bool show)
@@ -290,7 +336,9 @@ void howto_close_animation(display_ctx_t *ctx, bool show)
 		lv_label_set_text(ctx->howto_close_label, "");
 	}
 
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	display_realign_upper_labels(ctx);
+#endif
 	lv_obj_move_foreground(ctx->howto_close_label);
 }
 
@@ -330,9 +378,9 @@ void disconnected_animation(display_ctx_t *ctx)
 }
 #endif
 
+#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 static void display_realign_upper_labels(display_ctx_t *ctx)
 {
-#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	constexpr int32_t kModeGap = 8;
 	lv_obj_t *anchor = ctx->status_label;
 #if defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
@@ -344,14 +392,12 @@ static void display_realign_upper_labels(display_ctx_t *ctx)
 #endif
 
 	lv_obj_align_to(ctx->op_mode_label, anchor, LV_ALIGN_OUT_BOTTOM_MID, 0, kModeGap);
-#endif
 
 	display_realign_bottom_labels(ctx);
 }
 
 static void display_realign_bottom_labels(display_ctx_t *ctx)
 {
-#ifdef CONFIG_DOOR_LOCK_BLE_UWB
 	constexpr int32_t kBottomMargin = 2;
 	constexpr int32_t kBtnGap = 4;
 	constexpr int32_t kDistGap = 8;
@@ -368,10 +414,8 @@ static void display_realign_bottom_labels(display_ctx_t *ctx)
 
 	lv_obj_move_foreground(ctx->howto_close_label);
 	lv_obj_move_foreground(ctx->op_mode_switch_label);
-#else
-	lv_obj_align(ctx->howto_close_label, LV_ALIGN_BOTTOM_MID, 0, -20);
-#endif
 }
+#endif
 
 #if defined(CONFIG_DOOR_LOCK_BLE_UWB) && defined(CONFIG_DOOR_LOCK_ALIRO_UWB_QM35_FRONT_BACK_DETECTION)
 static void display_update_disambiguation_side(display_ctx_t *ctx)

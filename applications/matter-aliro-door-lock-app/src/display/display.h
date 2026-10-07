@@ -23,7 +23,9 @@ typedef struct {
 typedef struct {
 	const struct device *dev;
 	lv_obj_t *nordic_logo;
+	lv_obj_t *aliro_logo;
 	lv_obj_t *status_label;
+	lv_obj_t *lock_icon;
 	lv_obj_t *howto_close_label;
 	lv_obj_t *op_mode_label;
 	lv_obj_t *op_mode_switch_label;
