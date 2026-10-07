@@ -27,10 +27,12 @@ static const struct gpio_dt_spec dc_gpio = GPIO_DT_SPEC_GET(MIPI_DBI_NODE, dc_gp
 #endif
 
 #define SPI_DEV_NODE DT_PHANDLE(MIPI_DBI_NODE, spi_dev)
+#define DISPLAY_NODE DT_CHOSEN(zephyr_display)
 static const struct device *spi_dev = DEVICE_DT_GET(SPI_DEV_NODE);
 
 #if DT_NODE_HAS_PROP(SPI_DEV_NODE, cs_gpios)
-static const struct gpio_dt_spec cs_gpio = GPIO_DT_SPEC_GET_BY_IDX(SPI_DEV_NODE, cs_gpios, 2);
+static const struct gpio_dt_spec cs_gpio =
+	GPIO_DT_SPEC_GET_BY_IDX(SPI_DEV_NODE, cs_gpios, DT_REG_ADDR_RAW(DISPLAY_NODE));
 #endif
 
 struct k_event display_event;
@@ -120,7 +122,7 @@ int display_init(display_ctx_t *ctx)
 	LOG_WRN("CS GPIO not defined for display");
 #endif
 
-	ctx->dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
+	ctx->dev = DEVICE_DT_GET(DISPLAY_NODE);
 	if (!device_is_ready(ctx->dev)) {
 		LOG_ERR("Display device not ready");
 		return -ENODEV;
