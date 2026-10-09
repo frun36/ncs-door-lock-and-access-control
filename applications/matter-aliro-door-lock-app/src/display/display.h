@@ -29,7 +29,6 @@ typedef struct {
 	lv_obj_t *howto_close_label;
 	lv_obj_t *op_mode_label;
 	lv_obj_t *op_mode_switch_label;
-	lv_obj_t *disambiguation_icon;
 	lv_obj_t *dist_label;
 	char count_str[DISPLAY_STR_MAX_LEN];
 } display_ctx_t;
@@ -54,15 +53,6 @@ void display_post_distance_update(dist_data_t val);
 
 /** Update the displayed transport mode. */
 void display_post_op_mode_change(bool nfcEnabled);
-
-/** Update the displayed front/back result if it changed. */
-void display_post_disambiguation_side(bool isFront);
-
-/** Force a front/back redraw, for example after session resume. */
-void display_refresh_disambiguation_side(bool isFront);
-
-/** Hide the front/back icon after disconnect. */
-void display_clear_disambiguation_side();
 
 /** Update the lock state only when the displayed state differs. */
 void display_sync_lock_state(bool isOpen);
