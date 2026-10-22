@@ -31,6 +31,10 @@
 #include <aliro/aliro.h>
 #endif // CONFIG_DOOR_LOCK_BLE_UWB
 
+#ifdef CONFIG_DOOR_LOCK_WIFI
+#include "wifi/wifi.h"
+#endif // CONFIG_DOOR_LOCK_WIFI
+
 LOG_MODULE_REGISTER(door_lock_app, CONFIG_DOOR_LOCK_APP_LOG_LEVEL);
 
 namespace {
@@ -166,6 +170,13 @@ int main()
 	VerifyOrDie(nusErr == 0, "Failed to start NUS service");
 
 #endif // CONFIG_DOOR_LOCK_NUS_SERVICE
+
+#ifdef CONFIG_DOOR_LOCK_WIFI
+
+	int wifiErr = DoorLock::Wifi::Init();
+	VerifyOrDie(wifiErr == 0, "Failed to initialize Wi-Fi");
+
+#endif // CONFIG_DOOR_LOCK_WIFI
 
 	LOG_INF("Application started");
 

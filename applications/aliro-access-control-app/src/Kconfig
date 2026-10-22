@@ -5,4 +5,5 @@
 #
 
 rsource "aliro/Kconfig"
+rsource "wifi/Kconfig"
 
