@@ -7,9 +7,8 @@ manifest:
       url-base: https://github.com/nrfconnect
   projects:
     - name: ncs-aliro
-      remote: ncs
-      repo-path: ncs-aliro
-      revision: b8cd7c5fe7c6f50df4a6bb89a750c1a985e26e0d
+      url: git@github.com:frun36/ncs-aliro
+      revision: eed34381d7c6ff6f9ad6a06024c5c8170e1db64f
       import: true
   self:
     import: west.yml
